@@ -85,6 +85,123 @@ function CatAddRow({onAdd, acColor}){
   </div>;
 }
 
+/* ── 통계 페이지 ── */
+function StatsPage({mRecs,mExp,mInc,mET,mIT,expCats,fMonth,setFMonth,dlCSV,sorted}){
+  const [selTarget, setSelTarget] = useState("개인");
+  const fmt = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
+  const fmtM = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원"; };
+
+  // 대상별 합계
+  const targetTotals = ["개인","가족","기타"].map(t=>({
+    target: t,
+    total: mExp.filter(r=>r.target===t).reduce((s,r)=>s+Number(r.amount),0),
+  }));
+
+  // 선택된 대상의 카테고리별 분석
+  const selExp = mExp.filter(r=>r.target===selTarget);
+  const selTotal = selExp.reduce((s,r)=>s+Number(r.amount),0);
+  const catBreakdown = expCats.map(cat=>({
+    cat,
+    total: selExp.filter(r=>r.category===cat).reduce((s,r)=>s+Number(r.amount),0),
+  })).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+
+  // 수입 카테고리별
+  const mIT2 = mInc.reduce((s,r)=>s+Number(r.amount),0);
+  const incStats = ["급여","부업","이자","기타수입"].map(c=>({
+    cat:c, total:mInc.filter(r=>r.category===c).reduce((s,r)=>s+Number(r.amount),0)
+  })).filter(x=>x.total>0);
+
+  const tColors = {"개인":["#3b82f6","#60a5fa"],"가족":["#f59e0b","#fbbf24"],"기타":["#8b5cf6","#a78bfa"]};
+
+  return <div style={{paddingBottom:120}}>
+    {/* 월 선택 */}
+    <div style={{padding:"14px 20px 10px"}}>
+      <input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={{width:"100%",boxSizing:"border-box",background:"#f8fafc",border:"1.5px solid #e2e8f0",color:"#1e293b",borderRadius:8,padding:"8px 12px",fontSize:14}}/>
+    </div>
+
+    {/* 수입/지출 요약 */}
+    <div style={{display:"flex",background:"#fff",margin:"0 16px 16px",borderRadius:14,padding:"16px 12px",boxShadow:"0 1px 4px #0000000d"}}>
+      {[["수입",mIT,"#16a34a"],["지출",mET,"#dc2626"],["잔액",mIT-mET,mIT-mET>=0?"#2563eb":"#dc2626"]].map(([l,v,c])=>(
+        <div key={l} style={{flex:1,textAlign:"center"}}>
+          <div style={{fontSize:11,color:"#94a3b8",marginBottom:4}}>{l}</div>
+          <div style={{fontSize:16,fontWeight:800,color:c}}>{fmtM(v)}</div>
+        </div>
+      ))}
+    </div>
+
+    {/* 대상별 합계 탭 */}
+    <div style={{padding:"0 16px 12px"}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:10}}>👤 지출 — 대상별 분석</div>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {targetTotals.map(({target,total})=>(
+          <button key={target} onClick={()=>setSelTarget(target)} style={{
+            flex:1, padding:"10px 4px", borderRadius:12, cursor:"pointer",
+            border: selTarget===target ? `2px solid ${tColors[target][0]}` : "2px solid #f1f5f9",
+            background: selTarget===target ? tColors[target][0]+"11" : "#fff",
+            boxShadow:"0 1px 4px #0000000d",
+          }}>
+            <div style={{fontSize:11,color:selTarget===target?tColors[target][0]:"#94a3b8",fontWeight:700,marginBottom:4}}>{target}</div>
+            <div style={{fontSize:14,fontWeight:800,color:selTarget===target?tColors[target][0]:"#1e293b"}}>{fmtM(total)}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* 선택된 대상의 카테고리 드릴다운 */}
+      <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 4px #0000000d",border:`1.5px solid ${tColors[selTarget][0]}22`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <span style={{fontSize:13,fontWeight:700,color:tColors[selTarget][0]}}>{selTarget} 총 {fmt(selTotal)}</span>
+          <span style={{fontSize:11,color:"#94a3b8"}}>{selExp.length}건</span>
+        </div>
+        {catBreakdown.length===0 && <div style={{fontSize:13,color:"#94a3b8",textAlign:"center",padding:"12px 0"}}>내역 없음</div>}
+        {catBreakdown.map(({cat,total})=>{
+          const pct = selTotal ? Math.round(total/selTotal*100) : 0;
+          return <div key={cat} style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+              <span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{cat}</span>
+              <span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span>
+              <span style={{fontSize:13,fontWeight:700,color:"#1e293b",minWidth:76,textAlign:"right"}}>{fmt(total)}</span>
+            </div>
+            <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${tColors[selTarget][0]},${tColors[selTarget][1]})`,borderRadius:4,transition:"width .4s"}}/>
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>
+
+    {/* 수입 카테고리별 */}
+    <div style={{padding:"0 16px 16px"}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:10}}>💰 수입 — 카테고리별</div>
+      <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 4px #0000000d"}}>
+        {incStats.length===0&&<div style={{fontSize:13,color:"#94a3b8",textAlign:"center",padding:"12px 0"}}>내역 없음</div>}
+        {incStats.map(({cat,total})=>{
+          const pct = mIT2 ? Math.round(total/mIT2*100) : 0;
+          return <div key={cat} style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+              <span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{cat}</span>
+              <span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span>
+              <span style={{fontSize:13,fontWeight:700,color:"#16a34a",minWidth:76,textAlign:"right"}}>{fmt(total)}</span>
+            </div>
+            <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#22c55e,#06b6d4)",borderRadius:4,transition:"width .4s"}}/>
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>
+
+    {/* 다운로드 */}
+    <div style={{padding:"0 16px 20px",display:"flex",flexDirection:"column",gap:10}}>
+      <button onClick={()=>dlCSV(mRecs)} style={{background:"#0f766e",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+        📥 이번 달({fMonth.replace("-","년 ")}월) 다운로드
+      </button>
+      <button onClick={()=>dlCSV(sorted)} style={{background:"#475569",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+        📦 전체 내역 다운로드
+      </button>
+    </div>
+  </div>;
+}
+
 /* ── CSV 업로드 페이지 ── */
 function UploadPage({onImport, onBack, showToast}){
   const [preview, setPreview] = useState(null); // 파싱된 행 배열
@@ -467,32 +584,7 @@ export default function App(){
     </div>}
 
     {/* 통계 */}
-    {page==="stats"&&<div>
-      <div style={{padding:"14px 20px 10px"}}><input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={{...S.mInput,width:"100%",boxSizing:"border-box"}}/></div>
-      <div style={{display:"flex",background:"#fff",margin:"0 16px 16px",borderRadius:14,padding:"16px 12px",boxShadow:"0 1px 4px #0000000d"}}>
-        {[["수입",mIT,"#16a34a"],["지출",mET,"#dc2626"],["잔액",mIT-mET,mIT-mET>=0?"#2563eb":"#dc2626"]].map(([l,v,c])=>(
-          <div key={l} style={{flex:1,textAlign:"center"}}><div style={{fontSize:11,color:"#94a3b8",marginBottom:4}}>{l}</div><div style={{fontSize:16,fontWeight:800,color:c}}>{fmt(v)}</div></div>
-        ))}
-      </div>
-      {[{title:"📂 지출 — 카테고리별",rows:cStat,total:mET,grad:"#3b82f6,#8b5cf6"},{title:"👤 지출 — 대상별",rows:tStat,total:mET,grad:"#f59e0b,#ef4444"},{title:"💰 수입 — 카테고리별",rows:iStat,total:mIT,grad:"#22c55e,#06b6d4"}].map(sec=>(
-        <div key={sec.title} style={{padding:"0 20px 20px"}}>
-          <div style={{fontSize:14,fontWeight:700,color:"#475569",marginBottom:14}}>{sec.title}</div>
-          {sec.rows.filter(x=>x.t>0).length===0&&<div style={{fontSize:13,color:"#94a3b8"}}>내역 없음</div>}
-          {sec.rows.filter(x=>x.t>0).map(({l,t})=>{const pct=sec.total?Math.round(t/sec.total*100):0;return (<div key={l} style={{marginBottom:14}}>
-            <div style={{display:"flex",alignItems:"center",marginBottom:6}}><span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{l}</span><span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span><span style={{fontSize:13,fontWeight:700,color:"#1e293b",minWidth:80,textAlign:"right"}}>{fmt(t)}</span></div>
-            <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${sec.grad})`,borderRadius:4,transition:"width .4s"}}/></div>
-          </div>);})}
-        </div>
-      ))}
-      <div style={{padding:"0 20px 20px",display:"flex",flexDirection:"column",gap:10}}>
-        <button onClick={()=>dlCSV(mRecs)} style={{...S.saveBtn,background:"#0f766e"}}>
-          📥 이번 달({fMonth.replace("-","년 ")}월) 다운로드
-        </button>
-        <button onClick={()=>dlCSV(sorted)} style={{...S.saveBtn,background:"#475569"}}>
-          📦 전체 내역 다운로드
-        </button>
-      </div>
-    </div>}
+    {page==="stats"&&<StatsPage mRecs={mRecs} mExp={mExp} mInc={mInc} mET={mET} mIT={mIT} expCats={expCats} incCats={incCats} fMonth={fMonth} setFMonth={setFMonth} dlCSV={dlCSV} sorted={sorted}/>}
 
     <nav style={S.nav}>
       {[["home","🏠","홈"],["input","➕","입력"],["stats","📊","통계"]].map(([key,icon,label])=>(
