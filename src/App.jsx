@@ -463,7 +463,7 @@ export default function App(){
 
   // Firestore 실시간 구독
   useEffect(()=>{
-    const q = query(collection(db,"records"), orderBy("date","desc"));
+    const q = query(collection(db,"records"), orderBy("createdAt","desc"));
     const unsub = onSnapshot(q, snap=>{
       setRecords(snap.docs.map(d=>({id:d.id,...d.data()})));
       setLoading(false);
@@ -482,7 +482,7 @@ export default function App(){
       await updateDoc(doc(db,"records",editRec.id), data);
       showToast("수정 완료 ✓");
     } else {
-      await addDoc(collection(db,"records"), data);
+      await addDoc(collection(db,"records"), {...data, createdAt: Date.now()});
       showToast("저장 완료 ✓");
     }
     setEditRec(null); setPage("home");
@@ -496,7 +496,10 @@ export default function App(){
 
   const startEdit=r=>{setEditRec(r);setIMode(r.mode||"expense");setPage("input");};
 
-  const sorted  =[...records].sort((a,b)=>a.date<b.date?1:-1);
+  const sorted  =[...records].sort((a,b)=>{
+    if(b.date!==a.date) return b.date>a.date?1:-1;
+    return (b.createdAt||0)-(a.createdAt||0); // 같은 날짜면 최신 입력 순
+  });
   const filtered=sorted.filter(r=>{
     const mm = r.date?.startsWith(fMonth);
     const tm = fTarget==="전체"||r.target===fTarget;
