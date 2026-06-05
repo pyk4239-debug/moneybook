@@ -463,7 +463,7 @@ export default function App(){
 
   // Firestore 실시간 구독
   useEffect(()=>{
-    const q = query(collection(db,"records"), orderBy("createdAt","desc"));
+    const q = query(collection(db,"records"));
     const unsub = onSnapshot(q, snap=>{
       setRecords(snap.docs.map(d=>({id:d.id,...d.data()})));
       setLoading(false);
