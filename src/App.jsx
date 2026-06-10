@@ -562,6 +562,7 @@ export default function App(){
             placeholder="메모·카테고리·유형 검색"
             value={fSearch}
             onChange={e=>setFSearch(e.target.value)}
+            onInput={e=>setFSearch(e.target.value)}
             style={{flex:1,border:"none",background:"none",fontSize:14,color:"#1e293b",outline:"none"}}
           />
           {fSearch&&<button onClick={()=>setFSearch("")} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,padding:0,lineHeight:1}}>✕</button>}
