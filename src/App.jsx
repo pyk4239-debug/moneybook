@@ -501,11 +501,17 @@ export default function App(){
     return (b.createdAt||0)-(a.createdAt||0); // 같은 날짜면 최신 입력 순
   });
   const filtered=sorted.filter(r=>{
+    const kw = fSearch.trim().toLowerCase();
+    if(kw) {
+      // 검색어 있으면 전체 데이터에서 검색 (월 필터 무시)
+      const tm = fTarget==="전체"||r.target===fTarget;
+      const sm = (r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
+      return tm&&sm;
+    }
+    // 검색어 없으면 월 필터 적용
     const mm = r.date?.startsWith(fMonth);
     const tm = fTarget==="전체"||r.target===fTarget;
-    const kw = fSearch.trim().toLowerCase();
-    const sm = !kw||(r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
-    return mm&&tm&&sm;
+    return mm&&tm;
   });
   const income  =filtered.filter(r=>r.mode==="income") .reduce((s,r)=>s+Number(r.amount||0),0);
   const expense =filtered.filter(r=>r.mode==="expense").reduce((s,r)=>s+Number(r.amount||0),0);
@@ -571,7 +577,10 @@ export default function App(){
       </div>
       <div style={S.listArea}>
         <div style={{display:"flex",justifyContent:"space-between",padding:"4px 2px",alignItems:"center"}}>
-          <span style={{fontSize:12,color:"#94a3b8"}}>{filtered.length}건 {fSearch&&<span style={{color:"#2563eb",fontWeight:600}}>"{fSearch}" 검색결과</span>}</span>
+          <span style={{fontSize:12,color:"#94a3b8"}}>
+            {filtered.length}건
+            {fSearch && <span style={{color:"#2563eb",fontWeight:600}}> 전체에서 "{fSearch}" 검색</span>}
+          </span>
           <span style={{fontSize:13,color:"#dc2626",fontWeight:700}}>지출합계 {fmt(expense)}</span>
         </div>
         {filtered.length===0&&<div style={S.empty}><div style={{fontSize:36,marginBottom:8}}>{fSearch?"🔍":"🗒️"}</div><div>{fSearch?`"${fSearch}" 검색 결과 없음`:"내역이 없어요"}</div></div>}
