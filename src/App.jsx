@@ -382,10 +382,17 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast}){
 
 /* ── 지출 화면 ── */
 function ExpPage({expCats,onSave,editData,onCancel,showToast}){
-  const [tab,setTab]=useState("manual");
-  const [form,setForm]=useState(editData||blankE(expCats[0]));
+  const [tab,setTab]=useState(()=>{
+    const clip=sessionStorage.getItem("clipParsed");
+    return clip?"manual":"manual";
+  });
+  const [form,setForm]=useState(()=>{
+    const clip=sessionStorage.getItem("clipParsed");
+    if(clip){ sessionStorage.removeItem("clipParsed"); return JSON.parse(clip); }
+    return editData||blankE(expCats[0]);
+  });
+  const [parsed,setParsed]=useState(()=>!!sessionStorage.getItem("clipParsed"));
   const [paste,setPaste]=useState("");
-  const [parsed,setParsed]=useState(null);
   const [ps,setPs]=useState("idle");
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);setTab("manual");prev.current=editData;}},[editData]);
@@ -459,6 +466,7 @@ export default function App(){
   const [fMonth,  setFMonth]  = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
   const [fTarget, setFTarget] = useState("전체");
   const [fSearch, setFSearch] = useState("");
+  const [clipPopup, setClipPopup] = useState(null); // 클립보드 파싱 팝업 데이터
   const [toast,   setToast]   = useState("");
 
   // Firestore 실시간 구독
@@ -474,6 +482,28 @@ export default function App(){
   // 카테고리는 localStorage 유지
   useEffect(()=>{localStorage.setItem("mb7_exp",JSON.stringify(expCats));},[expCats]);
   useEffect(()=>{localStorage.setItem("mb7_inc",JSON.stringify(incCats));},[incCats]);
+
+  // 앱 포커스 시 클립보드 자동 감지
+  useEffect(()=>{
+    const checkClipboard = async () => {
+      try {
+        if(!document.hasFocus()) return;
+        const text = await navigator.clipboard.readText();
+        if(!text || text.length < 10) return;
+        const parsed = parseCard(text);
+        if(!parsed.amount) return;
+        // 이미 팝업 떠 있으면 무시
+        setClipPopup(prev => {
+          if(prev?.rawText === text) return prev;
+          return { rawText: text, ...parsed };
+        });
+      } catch(e) { /* 권한 없으면 무시 */ }
+    };
+    // 앱 포커스될 때마다 체크
+    window.addEventListener("focus", checkClipboard);
+    document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") checkClipboard(); });
+    return ()=>{ window.removeEventListener("focus", checkClipboard); };
+  },[]);
 
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(""),2200);};
 
@@ -629,6 +659,37 @@ export default function App(){
         </button>
       ))}
     </nav>
+    {/* 클립보드 자동 파싱 팝업 */}
+    {clipPopup&&(
+      <div style={{position:"fixed",bottom:90,left:16,right:16,maxWidth:448,margin:"0 auto",background:"#fff",borderRadius:16,boxShadow:"0 8px 32px #00000022",border:"1.5px solid #93c5fd",zIndex:40,padding:"16px"}}>
+        <div style={{fontSize:13,color:"#2563eb",fontWeight:700,marginBottom:8}}>📋 카드 문자 감지됨 — 파싱할까요?</div>
+        <div style={{fontSize:12,color:"#475569",marginBottom:12,lineHeight:1.6}}>
+          {clipPopup.memo&&<span>사용처: <b>{clipPopup.memo}</b>　</span>}
+          {clipPopup.amount&&<span>금액: <b style={{color:"#dc2626"}}>{Number(clipPopup.amount).toLocaleString("ko-KR")}원</b>　</span>}
+          {clipPopup.date&&<span>날짜: <b>{clipPopup.date}</b></span>}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{
+            setClipPopup(null);
+            setIMode("expense");
+            setPage("input");
+            // ExpPage에 파싱 데이터 전달용 sessionStorage 활용
+            sessionStorage.setItem("clipParsed", JSON.stringify({
+              mode:"expense", date:clipPopup.date||today(),
+              type:"카드", category:expCats[0],
+              target:"개인", amount:clipPopup.amount, memo:clipPopup.memo||""
+            }));
+          }} style={{flex:1,background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            ✅ 파싱하기
+          </button>
+          <button onClick={()=>setClipPopup(null)}
+            style={{flex:1,background:"#f1f5f9",color:"#64748b",border:"none",borderRadius:10,padding:"10px",fontSize:14,fontWeight:600,cursor:"pointer"}}>
+            무시
+          </button>
+        </div>
+      </div>
+    )}
+
     {toast&&<div style={S.toast}>{toast}</div>}
   </div>;
 }
