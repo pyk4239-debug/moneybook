@@ -24,10 +24,43 @@ const fmtM  = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; retu
 const fmtD  = d => { if(!d)return""; const[,m,v]=d.split("-"); return`${m}/${v}`; };
 const today = () => new Date().toISOString().slice(0,10);
 
-function parseCard(txt) {
+async function fetchRate(currency) {
+  try {
+    const res = await fetch(`https://api.frankfurter.app/latest?from=${currency}&to=KRW`);
+    const data = await res.json();
+    return data.rates?.KRW || null;
+  } catch {
+    try {
+      const res = await fetch(`https://open.er-api.com/v6/latest/${currency}`);
+      const data = await res.json();
+      return data.rates?.KRW || null;
+    } catch { return null; }
+  }
+}
+
+async function parseCard(txt) {
   const r={};
-  const a=txt.match(/금액\s*([\d,]+)원/), p=txt.match(/사용처\s*(.+)/), t=txt.match(/거래시간\s*(\d{2}\/\d{2})/);
-  if(a) r.amount=parseInt(a[1].replace(/,/g,""),10);
+  // 외화 감지: CAD17.52 / USD 12.50 형식
+  const fxMatch = txt.match(/금액\s*([A-Z]{3})\s*([\d,.]+)/);
+  const wonMatch = txt.match(/금액\s*([\d,]+)원/);
+
+  if(fxMatch) {
+    const currency = fxMatch[1];
+    const foreign = parseFloat(fxMatch[2].replace(/,/g,""));
+    r.foreignAmount = foreign;
+    r.foreignCurrency = currency;
+    const rate = await fetchRate(currency);
+    if(rate) {
+      r.amount = Math.round(foreign * rate);
+      r.rateInfo = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} ≈ ${r.amount.toLocaleString()}원`;
+    } else {
+      r.rateError = true;
+    }
+  } else if(wonMatch) {
+    r.amount = parseInt(wonMatch[1].replace(/,/g,""), 10);
+  }
+
+  const p=txt.match(/사용처\s*(.+)/), t=txt.match(/거래시간\s*(\d{2}\/\d{2})/);
   if(p) r.memo=p[1].trim();
   if(t) { const[mo,dy]=t[1].split("/"); r.date=`${new Date().getFullYear()}-${mo.padStart(2,"0")}-${dy.padStart(2,"0")}`; }
   return r;
@@ -398,7 +431,17 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);setTab("manual");prev.current=editData;}},[editData]);
   const blue={bg:"#eff6ff",b:"#3b82f6",c:"#2563eb"}, yel={bg:"#fffbeb",b:"#f59e0b",c:"#d97706"};
   const doSave=()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");onSave({...form,amount:Number(form.amount)});setForm(blankE(expCats[0]));setPaste("");setParsed(null);setPs("idle");};
-  const doParse=()=>{setPs("loading");setTimeout(()=>{const r=parseCard(paste);if(!r.amount){setPs("idle");return showToast("파싱 실패");}setParsed(r);setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""}));setPs("done");setTimeout(()=>setPs("idle"),2000);},600);};
+  const doParse=async()=>{
+    setPs("loading");
+    const r = await parseCard(paste);
+    if(r.rateError){ setPs("idle"); return showToast("환율 조회 실패 — 금액을 직접 입력해주세요"); }
+    if(!r.amount){ setPs("idle"); return showToast("파싱 실패 — 형식을 확인하세요"); }
+    setParsed(r);
+    setForm(f=>({...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||""}));
+    setPs("done");
+    if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`);
+    setTimeout(()=>setPs("idle"),2000);
+  };
   return <div>
     <div style={S.subBar}>
       <button onClick={()=>{setTab("manual");setPaste("");setParsed(null);}} style={{...S.subBtn,...(tab==="manual"?S.subOn:{})}}>✏️ 수동 입력</button>
@@ -424,9 +467,9 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
           const text = await navigator.clipboard.readText();
           if(!text) return showToast("클립보드가 비어있어요");
           setPaste(text); setParsed(null);
-          // 바로 파싱 시도
-          const r = parseCard(text);
-          if(r.amount){ setParsed(r); setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""})); showToast("자동 파싱 완료 ✓"); }
+          const r = await parseCard(text);
+          if(r.rateError) return showToast("환율 조회 실패 — 파싱하기 버튼을 눌러주세요");
+          if(r.amount){ setParsed(r); setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""})); if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`); else showToast("자동 파싱 완료 ✓"); }
           else showToast("문자를 붙여넣었어요 — 파싱하기 버튼을 눌러주세요");
         } catch(e) { showToast("클립보드 접근 실패 — 아래에 직접 붙여넣기 해주세요"); }
       }} style={{...S.saveBtn,background:"#7c3aed"}}>
