@@ -418,7 +418,21 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
     {tab==="paste"&&<div style={S.form}>
       <div style={S.ft}>📩 카드 문자 붙여넣기</div>
       <div style={S.exBox}><div style={S.exL}>하나카드 형식 예시</div><pre style={S.exP}>{"금액 19,000원\n카드 하나2*0*\n사용처 NHN링크\n거래시간 04/24 11:19"}</pre></div>
-      <textarea value={paste} onChange={e=>{setPaste(e.target.value);setParsed(null);}} placeholder="여기에 문자 붙여넣기..." style={S.ta}/>
+      {/* 클립보드 붙여넣기 버튼 */}
+      <button onClick={async()=>{
+        try {
+          const text = await navigator.clipboard.readText();
+          if(!text) return showToast("클립보드가 비어있어요");
+          setPaste(text); setParsed(null);
+          // 바로 파싱 시도
+          const r = parseCard(text);
+          if(r.amount){ setParsed(r); setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""})); showToast("자동 파싱 완료 ✓"); }
+          else showToast("문자를 붙여넣었어요 — 파싱하기 버튼을 눌러주세요");
+        } catch(e) { showToast("클립보드 접근 실패 — 아래에 직접 붙여넣기 해주세요"); }
+      }} style={{...S.saveBtn,background:"#7c3aed"}}>
+        📋 클립보드에서 자동 붙여넣기
+      </button>
+      <textarea value={paste} onChange={e=>{setPaste(e.target.value);setParsed(null);}} placeholder="또는 여기에 직접 붙여넣기..." style={S.ta}/>
       <button onClick={doParse} disabled={ps==="loading"} style={{...S.saveBtn,background:ps==="done"?"#16a34a":ps==="loading"?"#94a3b8":"#0f766e"}}>
         {ps==="loading"?"⏳ 분석 중...":ps==="done"?"✅ 파싱 완료!":"🔍 파싱하기"}
       </button>
