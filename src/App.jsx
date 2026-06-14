@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, setDoc, doc, query, orderBy } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDu46TGSkqSeDrsBs3UHOMNJX03L-_V-Po",
@@ -515,8 +515,9 @@ function IncPage({incCats,onSave,editData,onCancel,showToast}){
 export default function App(){
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expCats, setExpCats] = useState(()=>loadArr("mb7_exp",DEFAULT_EXP));
-  const [incCats, setIncCats] = useState(()=>loadArr("mb7_inc",DEFAULT_INC));
+  const [expCats, setExpCats] = useState(DEFAULT_EXP);
+  const [incCats, setIncCats] = useState(DEFAULT_INC);
+  const [catLoaded, setCatLoaded] = useState(false);
   const [page,    setPage]    = useState("home");
   const [iMode,   setIMode]   = useState("expense");
   const [editRec, setEditRec] = useState(null);
@@ -526,7 +527,7 @@ export default function App(){
   const [clipPopup, setClipPopup] = useState(null); // 클립보드 파싱 팝업 데이터
   const [toast,   setToast]   = useState("");
 
-  // Firestore 실시간 구독
+  // Firestore 실시간 구독 - 거래 내역
   useEffect(()=>{
     const q = query(collection(db,"records"));
     const unsub = onSnapshot(q, snap=>{
@@ -536,9 +537,27 @@ export default function App(){
     return unsub;
   },[]);
 
-  // 카테고리는 localStorage 유지
-  useEffect(()=>{localStorage.setItem("mb7_exp",JSON.stringify(expCats));},[expCats]);
-  useEffect(()=>{localStorage.setItem("mb7_inc",JSON.stringify(incCats));},[incCats]);
+  // Firestore 실시간 구독 - 카테고리 (단일 문서: settings/categories)
+  useEffect(()=>{
+    const ref = doc(db,"settings","categories");
+    const unsub = onSnapshot(ref, snap=>{
+      if(snap.exists()){
+        const d = snap.data();
+        if(Array.isArray(d.expCats) && d.expCats.length>0) setExpCats(d.expCats);
+        if(Array.isArray(d.incCats) && d.incCats.length>0) setIncCats(d.incCats);
+      } else {
+        // 문서 없으면 기본값으로 최초 생성 (localStorage 마이그레이션 포함)
+        const migExp = loadArr("mb7_exp", DEFAULT_EXP);
+        const migInc = loadArr("mb7_inc", DEFAULT_INC);
+        setDoc(ref, { expCats: migExp, incCats: migInc });
+      }
+      setCatLoaded(true);
+    });
+    return unsub;
+  },[]);
+
+  // 카테고리 변경 시 Firestore에 저장 (최초 로드 후에만)
+  useEffect(()=>{ if(catLoaded) setDoc(doc(db,"settings","categories"), { expCats, incCats }); },[expCats, incCats]);
 
   // 앱 포커스 시 클립보드 자동 감지
   useEffect(()=>{
@@ -618,7 +637,7 @@ export default function App(){
   };
 
   /* 설정 페이지 */
-  if(loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
+  if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
   if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
 
