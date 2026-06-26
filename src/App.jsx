@@ -22,7 +22,10 @@ const INC_TYPES   = ["은행입금","현금수입"];
 const fmt   = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
 const fmtM  = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원"; };
 const fmtD  = d => { if(!d)return""; const[,m,v]=d.split("-"); return`${m}/${v}`; };
-const today = () => new Date().toISOString().slice(0,10);
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
 
 async function fetchRate(currency) {
   try {
