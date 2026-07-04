@@ -551,10 +551,13 @@ export default function App(){
   const [editRec, setEditRec] = useState(null);
   const [fMonth,  setFMonth]  = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
   const [fTarget, setFTarget] = useState("전체");
+  const [fType,   setFType]   = useState("전체"); // 카드/현금/은행/전체
+  const [fMode,   setFMode]   = useState("전체"); // 지출/수입/전체
   const [fSearch, setFSearch] = useState("");
-  const [fRange,  setFRange]  = useState("month"); // "month" | "range" | "all"
+  const [fRange,  setFRange]  = useState("month");
   const [fFrom,   setFFrom]   = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
   const [fTo,     setFTo]     = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
+  const [showFilter, setShowFilter] = useState(false);
   const [clipPopup, setClipPopup] = useState(null);
   const [toast,   setToast]   = useState("");
 
@@ -640,14 +643,16 @@ export default function App(){
   const filtered=sorted.filter(r=>{
     const kw = fSearch.trim().toLowerCase();
     const tm = fTarget==="전체"||r.target===fTarget;
+    const tym = fType==="전체"||r.type===fType;
+    const mm2 = fMode==="전체"||(fMode==="지출"?r.mode==="expense":r.mode==="income");
     const sm = !kw||(r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
     let dm = true;
-    if(!kw) { // 검색어 없을 때만 기간 필터 적용
+    if(!kw) {
       if(fRange==="month") dm = r.date?.startsWith(fMonth);
       else if(fRange==="range") dm = r.date >= fFrom+"-01" && r.date <= fTo+"-31";
-      else dm = true; // 전체
+      else dm = true;
     }
-    return dm&&tm&&sm;
+    return dm&&tm&&tym&&mm2&&sm;
   });
   const income  =filtered.filter(r=>r.mode==="income") .reduce((s,r)=>s+Number(r.amount||0),0);
   const expense =filtered.filter(r=>r.mode==="expense").reduce((s,r)=>s+Number(r.amount||0),0);
@@ -713,16 +718,59 @@ export default function App(){
           {["전체",...TARGETS].map(t=><option key={t}>{t}</option>)}
         </select>
       </div>
-      {/* 검색창 */}
-      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
-        <div style={{display:"flex",alignItems:"center",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"8px 12px",gap:8}}>
+      {/* 검색창 + 필터 버튼 */}
+      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9",display:"flex",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"8px 12px",gap:8,flex:1}}>
           <span style={{fontSize:15,color:"#94a3b8"}}>🔍</span>
-          <input type="text" placeholder="메모·카테고리·유형 검색 (기간 무관)" value={fSearch}
+          <input type="text" placeholder="메모·카테고리·유형 검색" value={fSearch}
             onChange={e=>setFSearch(e.target.value)} onInput={e=>setFSearch(e.target.value)}
             style={{flex:1,border:"none",background:"none",fontSize:14,color:"#1e293b",outline:"none"}}/>
           {fSearch&&<button onClick={()=>setFSearch("")} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,padding:0}}>✕</button>}
         </div>
+        <button onClick={()=>setShowFilter(f=>!f)} style={{
+          background: (fTarget!=="전체"||fType!=="전체"||fMode!=="전체") ? "#2563eb" : "#f8fafc",
+          border: "1.5px solid #e2e8f0", borderRadius:10, padding:"0 12px",
+          color: (fTarget!=="전체"||fType!=="전체"||fMode!=="전체") ? "#fff" : "#64748b",
+          fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap",
+        }}>
+          🎚️ {[fTarget,fType,fMode].filter(v=>v!=="전체").length>0 ? `필터 ${[fTarget,fType,fMode].filter(v=>v!=="전체").length}` : "필터"}
+        </button>
       </div>
+
+      {/* 필터 패널 */}
+      {showFilter&&<div style={{background:"#f8fafc",borderBottom:"1px solid #f1f5f9",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+        {/* 구분 */}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:12,color:"#64748b",minWidth:36,fontWeight:600}}>구분</span>
+          <div style={{display:"flex",gap:6,flex:1}}>
+            {["전체","지출","수입"].map(v=>(
+              <button key={v} onClick={()=>setFMode(v)} style={{flex:1,padding:"6px 4px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",border:fMode===v?"1.5px solid #2563eb":"1.5px solid #e2e8f0",background:fMode===v?"#eff6ff":"#fff",color:fMode===v?"#2563eb":"#94a3b8"}}>{v}</button>
+            ))}
+          </div>
+        </div>
+        {/* 유형 */}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:12,color:"#64748b",minWidth:36,fontWeight:600}}>유형</span>
+          <div style={{display:"flex",gap:6,flex:1}}>
+            {["전체","카드","현금","은행"].map(v=>(
+              <button key={v} onClick={()=>setFType(v)} style={{flex:1,padding:"6px 4px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",border:fType===v?"1.5px solid #7c3aed":"1.5px solid #e2e8f0",background:fType===v?"#f5f3ff":"#fff",color:fType===v?"#7c3aed":"#94a3b8"}}>{v}</button>
+            ))}
+          </div>
+        </div>
+        {/* 대상 */}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:12,color:"#64748b",minWidth:36,fontWeight:600}}>대상</span>
+          <div style={{display:"flex",gap:6,flex:1}}>
+            {["전체","개인","가족","기타"].map(v=>(
+              <button key={v} onClick={()=>setFTarget(v)} style={{flex:1,padding:"6px 4px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",border:fTarget===v?"1.5px solid #f59e0b":"1.5px solid #e2e8f0",background:fTarget===v?"#fffbeb":"#fff",color:fTarget===v?"#d97706":"#94a3b8"}}>{v}</button>
+            ))}
+          </div>
+        </div>
+        {/* 초기화 */}
+        <button onClick={()=>{setFTarget("전체");setFType("전체");setFMode("전체");}} style={{background:"none",border:"1px solid #e2e8f0",borderRadius:8,padding:"6px",fontSize:12,color:"#94a3b8",cursor:"pointer"}}>
+          🔄 필터 초기화
+        </button>
+      </div>}
       <div style={S.sumRow}>
         {[["수입",income,"#22c55e","#16a34a"],["지출",expense,"#ef4444","#dc2626"],["잔액",income-expense,"#3b82f6",income-expense>=0?"#2563eb":"#dc2626"]].map(([l,v,bc,tc2])=>(
           <div key={l} style={{...S.sumCard,borderTop:`3px solid ${bc}`}}>
