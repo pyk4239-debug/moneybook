@@ -45,8 +45,11 @@ const FX_FEE_RATE = 0.00198; // 하나카드 해외 수수료 0.198%
 
 async function parseCard(txt) {
   const r={};
-  const fxMatch = txt.match(/금액\s*([A-Z]{3})\s*([\d,.]+)/);
-  const wonMatch = txt.match(/금액\s*([\d,]+)원/);
+  // 줄바꿈 기준으로 파싱 (공백/탭 유연하게)
+  const fxMatch  = txt.match(/금액[\s:]*([A-Z]{3})\s*([\d,.]+)/);
+  const wonMatch = txt.match(/금액[\s:]*([\d,]+)원/);
+  const pMatch   = txt.match(/사용처[\s:]*(.+)/);
+  const tMatch   = txt.match(/거래시간[\s:]*(\d{2}\/\d{2})/);
 
   if(fxMatch) {
     const currency = fxMatch[1];
@@ -55,11 +58,11 @@ async function parseCard(txt) {
     r.foreignCurrency = currency;
     const rate = await fetchRate(currency);
     if(rate) {
-      const wonBase = Math.round(foreign * rate);    // 원화 기본금액
-      const fee     = Math.round(wonBase * FX_FEE_RATE); // 수수료
+      const wonBase = Math.round(foreign * rate);
+      const fee     = Math.round(wonBase * FX_FEE_RATE);
       r.wonBase   = wonBase;
       r.feeAmount = fee;
-      r.amount    = wonBase + fee;                  // 합계 (실청구액)
+      r.amount    = wonBase + fee;
       r.rateInfo  = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} = ${wonBase.toLocaleString()}원 + 수수료 ${fee.toLocaleString()}원`;
     } else {
       r.rateError = true;
@@ -68,9 +71,11 @@ async function parseCard(txt) {
     r.amount = parseInt(wonMatch[1].replace(/,/g,""), 10);
   }
 
-  const p=txt.match(/사용처\s*(.+)/), t=txt.match(/거래시간\s*(\d{2}\/\d{2})/);
-  if(p) r.memo=p[1].trim();
-  if(t) { const[mo,dy]=t[1].split("/"); r.date=`${new Date().getFullYear()}-${mo.padStart(2,"0")}-${dy.padStart(2,"0")}`; }
+  if(pMatch) r.memo = pMatch[1].trim();
+  if(tMatch) {
+    const [mo,dy] = tMatch[1].split("/");
+    r.date = `${new Date().getFullYear()}-${mo.padStart(2,"0")}-${dy.padStart(2,"0")}`;
+  }
   return r;
 }
 
@@ -702,17 +707,9 @@ export default function App(){
     setEditRec(null); setPage("home");
   };
 
-  const [delConfirm, setDelConfirm] = useState(null); // 삭제 확인 중인 id
-
   const handleDel=async id=>{
-    if(delConfirm===id){
-      await deleteDoc(doc(db,"records",id));
-      setDelConfirm(null);
-      showToast("삭제됨");
-    } else {
-      setDelConfirm(id);
-      setTimeout(()=>setDelConfirm(null), 3000); // 3초 후 자동 취소
-    }
+    await deleteDoc(doc(db,"records",id));
+    showToast("삭제됨");
   };
 
   const startEdit=r=>{setEditRec(r);setIMode(r.mode||"expense");setPage("input");};
@@ -890,13 +887,7 @@ export default function App(){
             <div style={{fontSize:15,fontWeight:800,color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"+":"-"}{fmt(r.amount)}</div>
             <div style={{display:"flex",gap:4,justifyContent:"flex-end",marginTop:5}}>
               <button onClick={()=>startEdit(r)} style={S.editBtn}>수정</button>
-              {delConfirm===r.id
-                ? <>
-                    <button onClick={()=>handleDel(r.id)} style={{...S.delBtn,background:"#dc2626",color:"#fff",fontWeight:700}}>확인!</button>
-                    <button onClick={()=>setDelConfirm(null)} style={{...S.editBtn,fontSize:10}}>취소</button>
-                  </>
-                : <button onClick={()=>handleDel(r.id)} style={S.delBtn}>삭제</button>
-              }
+              <button onClick={()=>handleDel(r.id)} style={S.delBtn}>삭제</button>
             </div>
           </div>
         </div>);})}
