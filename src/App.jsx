@@ -41,9 +41,10 @@ async function fetchRate(currency) {
   }
 }
 
+const FX_FEE_RATE = 0.00198; // 하나카드 해외 수수료 0.198%
+
 async function parseCard(txt) {
   const r={};
-  // 외화 감지: CAD17.52 / USD 12.50 형식
   const fxMatch = txt.match(/금액\s*([A-Z]{3})\s*([\d,.]+)/);
   const wonMatch = txt.match(/금액\s*([\d,]+)원/);
 
@@ -54,8 +55,12 @@ async function parseCard(txt) {
     r.foreignCurrency = currency;
     const rate = await fetchRate(currency);
     if(rate) {
-      r.amount = Math.round(foreign * rate);
-      r.rateInfo = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} ≈ ${r.amount.toLocaleString()}원`;
+      const wonBase = Math.round(foreign * rate);    // 원화 기본금액
+      const fee     = Math.round(wonBase * FX_FEE_RATE); // 수수료
+      r.wonBase   = wonBase;
+      r.feeAmount = fee;
+      r.amount    = wonBase + fee;                  // 합계 (실청구액)
+      r.rateInfo  = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} = ${wonBase.toLocaleString()}원 + 수수료 ${fee.toLocaleString()}원`;
     } else {
       r.rateError = true;
     }
@@ -465,9 +470,12 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
     if(r.rateError){ setPs("idle"); return showToast("환율 조회 실패 — 금액을 직접 입력해주세요"); }
     if(!r.amount){ setPs("idle"); return showToast("파싱 실패 — 형식을 확인하세요"); }
     setParsed(r);
-    setForm(f=>({...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||""}));
+    setForm(f=>({...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||"",
+      foreignAmount:r.foreignAmount, foreignCurrency:r.foreignCurrency,
+      wonBase:r.wonBase, feeAmount:r.feeAmount,
+    }));
     setPs("done");
-    if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`);
+    if(r.rateInfo) showToast(`✅ ${r.rateInfo}`);
     setTimeout(()=>setPs("idle"),2000);
   };
   return <div>
@@ -509,8 +517,34 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       </button>
       {parsed&&<div style={S.preview}>
         <div style={{fontSize:13,color:"#2563eb",fontWeight:700}}>✅ 파싱 완료 — 카테고리·대상 선택 후 저장</div>
+        {/* 해외 결제 수수료 표시 */}
+        {form.foreignCurrency&&<div style={{background:"#f0f9ff",borderRadius:8,padding:"10px 12px",border:"1px solid #bae6fd",fontSize:12,lineHeight:1.8}}>
+          <div style={{color:"#0369a1",fontWeight:700,marginBottom:4}}>🌏 해외 결제 내역</div>
+          <div style={{color:"#475569"}}>
+            <span>{form.foreignCurrency} {form.foreignAmount} </span>
+            <span style={{color:"#94a3b8"}}>→ 원화 </span>
+            <input type="number" value={form.wonBase||""} onChange={e=>{
+              const wb=Number(e.target.value);
+              const fee=Math.round(wb*FX_FEE_RATE);
+              setForm({...form, wonBase:wb, feeAmount:fee, amount:wb+fee});
+            }} style={{...S.inp,width:100,padding:"3px 6px",fontSize:12,display:"inline-block",flex:"none"}}/>
+            <span style={{color:"#94a3b8"}}>원</span>
+          </div>
+          <div style={{color:"#475569"}}>
+            <span style={{color:"#94a3b8"}}>수수료(0.198%) </span>
+            <input type="number" value={form.feeAmount||""} onChange={e=>{
+              setForm({...form, feeAmount:Number(e.target.value), amount:(form.wonBase||0)+Number(e.target.value)});
+            }} style={{...S.inp,width:80,padding:"3px 6px",fontSize:12,display:"inline-block",flex:"none"}}/>
+            <span style={{color:"#94a3b8"}}>원</span>
+          </div>
+          <div style={{color:"#1e293b",fontWeight:700,marginTop:4}}>
+            합계(청구금액): <span style={{color:"#dc2626",fontSize:14}}>{Number(form.amount).toLocaleString()}원</span>
+          </div>
+        </div>}
         <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
-        <Row label="금액"><input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
+        <Row label="금액">
+          <input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/>
+        </Row>
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
         <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
         <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
@@ -800,6 +834,10 @@ export default function App(){
               {r.mode==="expense"&&r.target&&<span style={{...S.badge,background:"#fffbeb",color:"#d97706",border:"1px solid #fcd34d"}}>{r.target}</span>}
             </div>
             <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#475569"}}>{r.memo||"—"}</div>
+            {/* 해외 결제 표시 */}
+            {r.foreignCurrency&&<div style={{fontSize:11,color:"#0369a1",marginTop:3}}>
+              🌏 {r.foreignCurrency} {r.foreignAmount} | 수수료 {Number(r.feeAmount||0).toLocaleString()}원
+            </div>}
           </div>
           <div style={{textAlign:"right",minWidth:90}}>
             <div style={{fontSize:15,fontWeight:800,color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"+":"-"}{fmt(r.amount)}</div>
