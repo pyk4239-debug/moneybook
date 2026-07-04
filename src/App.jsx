@@ -485,35 +485,42 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
     </div>
     {tab==="manual"&&<div style={S.form}>
       <div style={S.ft}>{editData?"✏️ 지출 수정":"💸 지출 입력"}</div>
+
+      {/* 해외 결제 수정 박스 - 수정 시 맨 위에 크게 표시 */}
+      {form.foreignCurrency&&<div style={{background:"#e0f2fe",borderRadius:12,padding:"14px 16px",border:"1.5px solid #38bdf8",display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{fontSize:13,color:"#0369a1",fontWeight:800}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:12,color:"#0369a1",minWidth:64,fontWeight:600}}>승인금액</span>
+            <input type="number" value={form.wonBase||""} onChange={e=>{
+              const wb=Number(e.target.value);
+              const fee=Math.round(wb*FX_FEE_RATE);
+              setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});
+            }} style={{...S.inp,background:"#fff"}}/>
+            <span style={{fontSize:12,color:"#0369a1"}}>원</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:12,color:"#0369a1",minWidth:64,fontWeight:600}}>수수료</span>
+            <input type="number" value={form.feeAmount||""} onChange={e=>{
+              const fee=Number(e.target.value);
+              setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});
+            }} style={{...S.inp,background:"#fff"}}/>
+            <span style={{fontSize:12,color:"#0369a1"}}>원</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid #bae6fd",paddingTop:8}}>
+            <span style={{fontSize:13,color:"#0369a1",fontWeight:700}}>합계(청구금액)</span>
+            <span style={{fontSize:16,fontWeight:800,color:"#dc2626"}}>{Number(form.amount||0).toLocaleString()}원</span>
+          </div>
+        </div>
+      </div>}
+
       <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
       <Row label="유형"><Seg items={EXP_TYPES} value={form.type} onChange={v=>setForm({...form,type:v})} ac={blue}/></Row>
       <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
       <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
 
-      {/* 해외 결제인 경우 수수료 수정 가능 */}
-      {form.foreignCurrency ? (
-        <div style={{background:"#f0f9ff",borderRadius:10,padding:"12px",border:"1px solid #bae6fd",display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:12,color:"#0369a1",fontWeight:700}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
-          <Row label="원화금액">
-            <input type="number" value={form.wonBase||""} onChange={e=>{
-              const wb=Number(e.target.value);
-              const fee=Math.round(wb*FX_FEE_RATE);
-              setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});
-            }} style={S.inp}/>
-          </Row>
-          <Row label="수수료">
-            <input type="number" value={form.feeAmount||""} onChange={e=>{
-              const fee=Number(e.target.value);
-              setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});
-            }} style={S.inp}/>
-          </Row>
-          <div style={{fontSize:13,color:"#dc2626",fontWeight:700,textAlign:"right"}}>
-            합계: {Number(form.amount||0).toLocaleString()}원
-          </div>
-        </div>
-      ) : (
-        <Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
-      )}
+      {/* 일반 결제는 금액 직접 수정, 해외 결제는 위 박스에서 자동 계산 */}
+      {!form.foreignCurrency&&<Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
 
       <Row label="메모"><input type="text" placeholder="사용처·메모" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
       <button onClick={doSave} style={S.saveBtn}>{editData?"수정 저장":"저장"}</button>
