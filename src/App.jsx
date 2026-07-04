@@ -489,7 +489,32 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       <Row label="유형"><Seg items={EXP_TYPES} value={form.type} onChange={v=>setForm({...form,type:v})} ac={blue}/></Row>
       <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
       <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
-      <Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
+
+      {/* 해외 결제인 경우 수수료 수정 가능 */}
+      {form.foreignCurrency ? (
+        <div style={{background:"#f0f9ff",borderRadius:10,padding:"12px",border:"1px solid #bae6fd",display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{fontSize:12,color:"#0369a1",fontWeight:700}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
+          <Row label="원화금액">
+            <input type="number" value={form.wonBase||""} onChange={e=>{
+              const wb=Number(e.target.value);
+              const fee=Math.round(wb*FX_FEE_RATE);
+              setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});
+            }} style={S.inp}/>
+          </Row>
+          <Row label="수수료">
+            <input type="number" value={form.feeAmount||""} onChange={e=>{
+              const fee=Number(e.target.value);
+              setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});
+            }} style={S.inp}/>
+          </Row>
+          <div style={{fontSize:13,color:"#dc2626",fontWeight:700,textAlign:"right"}}>
+            합계: {Number(form.amount||0).toLocaleString()}원
+          </div>
+        </div>
+      ) : (
+        <Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
+      )}
+
       <Row label="메모"><input type="text" placeholder="사용처·메모" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
       <button onClick={doSave} style={S.saveBtn}>{editData?"수정 저장":"저장"}</button>
       {editData&&<button onClick={onCancel} style={S.cancelBtn}>취소</button>}
