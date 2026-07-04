@@ -537,7 +537,15 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
           setPaste(text); setParsed(null);
           const r = await parseCard(text);
           if(r.rateError) return showToast("환율 조회 실패 — 파싱하기 버튼을 눌러주세요");
-          if(r.amount){ setParsed(r); setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""})); if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`); else showToast("자동 파싱 완료 ✓"); }
+          if(r.amount){
+            setParsed(r);
+            setForm(f=>({...f,
+              date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||"",
+              foreignAmount:r.foreignAmount, foreignCurrency:r.foreignCurrency,
+              wonBase:r.wonBase, feeAmount:r.feeAmount,
+            }));
+            if(r.rateInfo) showToast(`✅ ${r.rateInfo}`); else showToast("자동 파싱 완료 ✓");
+          }
           else showToast("문자를 붙여넣었어요 — 파싱하기 버튼을 눌러주세요");
         } catch(e) { showToast("클립보드 접근 실패 — 아래에 직접 붙여넣기 해주세요"); }
       }} style={{...S.saveBtn,background:"#7c3aed"}}>
@@ -694,10 +702,17 @@ export default function App(){
     setEditRec(null); setPage("home");
   };
 
+  const [delConfirm, setDelConfirm] = useState(null); // 삭제 확인 중인 id
+
   const handleDel=async id=>{
-    if(!confirm("삭제할까요?"))return;
-    await deleteDoc(doc(db,"records",id));
-    showToast("삭제됨");
+    if(delConfirm===id){
+      await deleteDoc(doc(db,"records",id));
+      setDelConfirm(null);
+      showToast("삭제됨");
+    } else {
+      setDelConfirm(id);
+      setTimeout(()=>setDelConfirm(null), 3000); // 3초 후 자동 취소
+    }
   };
 
   const startEdit=r=>{setEditRec(r);setIMode(r.mode||"expense");setPage("input");};
@@ -875,7 +890,13 @@ export default function App(){
             <div style={{fontSize:15,fontWeight:800,color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"+":"-"}{fmt(r.amount)}</div>
             <div style={{display:"flex",gap:4,justifyContent:"flex-end",marginTop:5}}>
               <button onClick={()=>startEdit(r)} style={S.editBtn}>수정</button>
-              <button onClick={()=>handleDel(r.id)} style={S.delBtn}>삭제</button>
+              {delConfirm===r.id
+                ? <>
+                    <button onClick={()=>handleDel(r.id)} style={{...S.delBtn,background:"#dc2626",color:"#fff",fontWeight:700}}>확인!</button>
+                    <button onClick={()=>setDelConfirm(null)} style={{...S.editBtn,fontSize:10}}>취소</button>
+                  </>
+                : <button onClick={()=>handleDel(r.id)} style={S.delBtn}>삭제</button>
+              }
             </div>
           </div>
         </div>);})}
