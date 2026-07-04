@@ -205,6 +205,31 @@ function StatsPage({mRecs,mExp,mInc,mET,mIT,expCats,fMonth,setFMonth,dlCSV,sorte
       </div>
     </div>
 
+    {/* 유형별 분석 */}
+    <div style={{padding:"0 16px 16px"}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:10}}>💳 지출 — 유형별</div>
+      <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 4px #0000000d"}}>
+        {["카드","현금","은행"].map(type=>{
+          const total = mExp.filter(r=>r.type===type).reduce((s,r)=>s+Number(r.amount),0);
+          if(!total) return null;
+          const pct = mET ? Math.round(total/mET*100) : 0;
+          const typeColor = type==="카드"?"#3b82f6":type==="현금"?"#f59e0b":"#8b5cf6";
+          const typeGrad  = type==="카드"?"#3b82f6,#60a5fa":type==="현금"?"#f59e0b,#fbbf24":"#8b5cf6,#a78bfa";
+          return <div key={type} style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+              <span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{type}</span>
+              <span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span>
+              <span style={{fontSize:13,fontWeight:700,color:typeColor,minWidth:76,textAlign:"right"}}>{fmt(total)}</span>
+            </div>
+            <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${typeGrad})`,borderRadius:4,transition:"width .4s"}}/>
+            </div>
+          </div>;
+        })}
+        {mET===0 && <div style={{fontSize:13,color:"#94a3b8",textAlign:"center",padding:"12px 0"}}>내역 없음</div>}
+      </div>
+    </div>
+
     {/* 수입 카테고리별 */}
     <div style={{padding:"0 16px 16px"}}>
       <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:10}}>💰 수입 — 카테고리별</div>
