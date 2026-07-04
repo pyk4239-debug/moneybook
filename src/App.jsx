@@ -552,7 +552,10 @@ export default function App(){
   const [fMonth,  setFMonth]  = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
   const [fTarget, setFTarget] = useState("전체");
   const [fSearch, setFSearch] = useState("");
-  const [clipPopup, setClipPopup] = useState(null); // 클립보드 파싱 팝업 데이터
+  const [fRange,  setFRange]  = useState("month"); // "month" | "range" | "all"
+  const [fFrom,   setFFrom]   = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
+  const [fTo,     setFTo]     = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
+  const [clipPopup, setClipPopup] = useState(null);
   const [toast,   setToast]   = useState("");
 
   // Firestore 실시간 구독 - 거래 내역
@@ -632,20 +635,19 @@ export default function App(){
 
   const sorted  =[...records].sort((a,b)=>{
     if(b.date!==a.date) return b.date>a.date?1:-1;
-    return (b.createdAt||0)-(a.createdAt||0); // 같은 날짜면 최신 입력 순
+    return (b.createdAt||0)-(a.createdAt||0);
   });
   const filtered=sorted.filter(r=>{
     const kw = fSearch.trim().toLowerCase();
-    if(kw) {
-      // 검색어 있으면 전체 데이터에서 검색 (월 필터 무시)
-      const tm = fTarget==="전체"||r.target===fTarget;
-      const sm = (r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
-      return tm&&sm;
-    }
-    // 검색어 없으면 월 필터 적용
-    const mm = r.date?.startsWith(fMonth);
     const tm = fTarget==="전체"||r.target===fTarget;
-    return mm&&tm;
+    const sm = !kw||(r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
+    let dm = true;
+    if(!kw) { // 검색어 없을 때만 기간 필터 적용
+      if(fRange==="month") dm = r.date?.startsWith(fMonth);
+      else if(fRange==="range") dm = r.date >= fFrom+"-01" && r.date <= fTo+"-31";
+      else dm = true; // 전체
+    }
+    return dm&&tm&&sm;
   });
   const income  =filtered.filter(r=>r.mode==="income") .reduce((s,r)=>s+Number(r.amount||0),0);
   const expense =filtered.filter(r=>r.mode==="expense").reduce((s,r)=>s+Number(r.amount||0),0);
@@ -683,23 +685,42 @@ export default function App(){
 
     {/* 홈 */}
     {page==="home"&&<>
-      <div style={S.filterBar}>
-        <input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={S.mInput}/>
-        <select value={fTarget} onChange={e=>setFTarget(e.target.value)} style={S.sel}>{["전체",...TARGETS].map(t=><option key={t}>{t}</option>)}</select>
+      {/* 기간 옵션 탭 */}
+      <div style={{display:"flex",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
+        {[["month","당월"],["range","기간"],["all","전체"]].map(([key,label])=>(
+          <button key={key} onClick={()=>setFRange(key)} style={{
+            flex:1,padding:"10px 4px",background:"none",border:"none",
+            fontSize:13,cursor:"pointer",fontWeight:700,
+            color:fRange===key?"#2563eb":"#94a3b8",
+            borderBottom:fRange===key?"2px solid #2563eb":"2px solid transparent",
+          }}>{label}</button>
+        ))}
+      </div>
+      {/* 기간 상세 선택 */}
+      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center"}}>
+        {fRange==="month"&&(
+          <input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={{...S.mInput,flex:2}}/>
+        )}
+        {fRange==="range"&&(<>
+          <input type="month" value={fFrom} onChange={e=>setFFrom(e.target.value)} style={{...S.mInput,flex:1}}/>
+          <span style={{color:"#94a3b8",fontSize:13}}>~</span>
+          <input type="month" value={fTo} onChange={e=>setFTo(e.target.value)} style={{...S.mInput,flex:1}}/>
+        </>)}
+        {fRange==="all"&&(
+          <span style={{fontSize:13,color:"#94a3b8"}}>전체 기간 내역</span>
+        )}
+        <select value={fTarget} onChange={e=>setFTarget(e.target.value)} style={{...S.sel,flex:1}}>
+          {["전체",...TARGETS].map(t=><option key={t}>{t}</option>)}
+        </select>
       </div>
       {/* 검색창 */}
       <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
         <div style={{display:"flex",alignItems:"center",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"8px 12px",gap:8}}>
           <span style={{fontSize:15,color:"#94a3b8"}}>🔍</span>
-          <input
-            type="text"
-            placeholder="메모·카테고리·유형 검색"
-            value={fSearch}
-            onChange={e=>setFSearch(e.target.value)}
-            onInput={e=>setFSearch(e.target.value)}
-            style={{flex:1,border:"none",background:"none",fontSize:14,color:"#1e293b",outline:"none"}}
-          />
-          {fSearch&&<button onClick={()=>setFSearch("")} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,padding:0,lineHeight:1}}>✕</button>}
+          <input type="text" placeholder="메모·카테고리·유형 검색 (기간 무관)" value={fSearch}
+            onChange={e=>setFSearch(e.target.value)} onInput={e=>setFSearch(e.target.value)}
+            style={{flex:1,border:"none",background:"none",fontSize:14,color:"#1e293b",outline:"none"}}/>
+          {fSearch&&<button onClick={()=>setFSearch("")} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,padding:0}}>✕</button>}
         </div>
       </div>
       <div style={S.sumRow}>
@@ -715,6 +736,8 @@ export default function App(){
           <span style={{fontSize:12,color:"#94a3b8"}}>
             {filtered.length}건
             {fSearch && <span style={{color:"#2563eb",fontWeight:600}}> 전체에서 "{fSearch}" 검색</span>}
+            {!fSearch && fRange==="range" && <span style={{color:"#475569"}}> ({fFrom}~{fTo})</span>}
+            {!fSearch && fRange==="all" && <span style={{color:"#475569"}}> (전체)</span>}
           </span>
           <span style={{fontSize:13,color:"#dc2626",fontWeight:700}}>지출합계 {fmt(expense)}</span>
         </div>
