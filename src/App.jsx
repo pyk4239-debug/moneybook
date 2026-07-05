@@ -636,7 +636,7 @@ export default function App(){
   useEffect(()=>{
     const q = query(collection(db,"records"));
     const unsub = onSnapshot(q, snap=>{
-      setRecords(snap.docs.map(d=>({id:d.id,...d.data()})));
+      setRecords(snap.docs.map(d=>({...d.data(), id:d.id})));
       setLoading(false);
     });
     return unsub;
