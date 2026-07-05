@@ -620,7 +620,7 @@ const S={
   subBar:  {display:"flex",borderBottom:"1px solid #f1f5f9",padding:"0 16px",gap:4,background:"#fff"},
   subBtn:  {padding:"10px 14px",background:"none",border:"none",color:"#94a3b8",fontSize:13,cursor:"pointer",fontWeight:600,borderBottom:"2px solid transparent"},
   subOn:   {color:"#2563eb",borderBottom:"2px solid #3b82f6"},
-  form:    {padding:"16px 20px",display:"flex",flexDirection:"column",gap:14,background:"#f8fafc"},
+  form:    {padding:"16px 20px",paddingBottom:"100px",display:"flex",flexDirection:"column",gap:14,background:"#f8fafc"},
   ft:      {fontSize:17,fontWeight:800,letterSpacing:-0.5,color:"#1e293b",marginBottom:2},
   inp:     {flex:1,background:"#fff",border:"1.5px solid #e2e8f0",borderRadius:9,color:"#1e293b",padding:"9px 12px",fontSize:14,outline:"none"},
   saveBtn: {background:"#2563eb",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer",width:"100%"},
