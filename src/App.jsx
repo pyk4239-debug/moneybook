@@ -18,6 +18,7 @@ const DEFAULT_INC = ["급여","부업","이자","기타수입"];
 const TARGETS     = ["개인","가족","기타"];
 const EXP_TYPES   = ["카드","현금","은행"];
 const INC_TYPES   = ["은행입금","현금수입"];
+const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 
 const fmt   = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
 const fmtM  = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원"; };
@@ -54,8 +55,12 @@ async function parseCard(txt) {
     r.foreignCurrency = currency;
     const rate = await fetchRate(currency);
     if(rate) {
-      r.amount = Math.round(foreign * rate);
-      r.rateInfo = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} ≈ ${r.amount.toLocaleString()}원`;
+      const wonBase = Math.round(foreign * rate);
+      const fee = Math.round(wonBase * FX_FEE);
+      r.wonBase = wonBase;
+      r.feeAmount = fee;
+      r.amount = wonBase + fee;
+      r.rateInfo = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} = ${wonBase.toLocaleString()}원 + 수수료 ${fee.toLocaleString()}원`;
     } else {
       r.rateError = true;
     }
@@ -465,7 +470,11 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
     if(r.rateError){ setPs("idle"); return showToast("환율 조회 실패 — 금액을 직접 입력해주세요"); }
     if(!r.amount){ setPs("idle"); return showToast("파싱 실패 — 형식을 확인하세요"); }
     setParsed(r);
-    setForm(f=>({...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||""}));
+    setForm(f=>{
+      const next={...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||""};
+      if(r.foreignCurrency){ next.foreignAmount=r.foreignAmount; next.foreignCurrency=r.foreignCurrency; next.wonBase=r.wonBase; next.feeAmount=r.feeAmount; }
+      return next;
+    });
     setPs("done");
     if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`);
     setTimeout(()=>setPs("idle"),2000);
@@ -497,7 +506,15 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
           setPaste(text); setParsed(null);
           const r = await parseCard(text);
           if(r.rateError) return showToast("환율 조회 실패 — 파싱하기 버튼을 눌러주세요");
-          if(r.amount){ setParsed(r); setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""})); if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`); else showToast("자동 파싱 완료 ✓"); }
+          if(r.amount){
+            setParsed(r);
+            setForm(f=>{
+              const next={...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""};
+              if(r.foreignCurrency){ next.foreignAmount=r.foreignAmount; next.foreignCurrency=r.foreignCurrency; next.wonBase=r.wonBase; next.feeAmount=r.feeAmount; }
+              return next;
+            });
+            if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`); else showToast("자동 파싱 완료 ✓");
+          }
           else showToast("문자를 붙여넣었어요 — 파싱하기 버튼을 눌러주세요");
         } catch(e) { showToast("클립보드 접근 실패 — 아래에 직접 붙여넣기 해주세요"); }
       }} style={{...S.saveBtn,background:"#7c3aed"}}>
@@ -509,8 +526,17 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       </button>
       {parsed&&<div style={S.preview}>
         <div style={{fontSize:13,color:"#2563eb",fontWeight:700}}>✅ 파싱 완료 — 카테고리·대상 선택 후 저장</div>
+        {form.foreignCurrency&&<div style={{background:"#e0f2fe",borderRadius:10,padding:"12px",border:"1px solid #7dd3fc",fontSize:12}}>
+          <div style={{color:"#0369a1",fontWeight:700,marginBottom:8}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
+          <Row label="승인금액"><input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value)||0;const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff"}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
+          <Row label="수수료"><input type="number" value={form.feeAmount||""} onChange={e=>{const fee=Number(e.target.value)||0;setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});}} style={{...S.inp,background:"#fff"}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
+          <div style={{marginTop:8,display:"flex",justifyContent:"space-between",borderTop:"1px solid #bae6fd",paddingTop:8}}>
+            <span style={{fontWeight:700,color:"#0369a1"}}>합계(청구금액)</span>
+            <span style={{fontWeight:800,color:"#dc2626"}}>{Number(form.amount||0).toLocaleString()}원</span>
+          </div>
+        </div>}
         <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
-        <Row label="금액"><input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
+        {!form.foreignCurrency&&<Row label="금액"><input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
         <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
         <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
@@ -617,12 +643,16 @@ export default function App(){
 
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(""),2200);};
 
+  // Firestore는 undefined 필드를 거부하므로 저장 직전에 항상 제거 (해외결제 아닐 때 foreignAmount 등이 undefined로 섞여 들어가 저장이 막히는 걸 방지)
+  const clean=obj=>{ const o={}; for(const k in obj) if(obj[k]!==undefined) o[k]=obj[k]; return o; };
+
   const handleSave=async data=>{
+    const clean_data = clean(data);
     if(editRec){
-      await updateDoc(doc(db,"records",editRec.id), data);
+      await updateDoc(doc(db,"records",editRec.id), clean_data);
       showToast("수정 완료 ✓");
     } else {
-      await addDoc(collection(db,"records"), {...data, createdAt: Date.now()});
+      await addDoc(collection(db,"records"), {...clean_data, createdAt: Date.now()});
       showToast("저장 완료 ✓");
     }
     setEditRec(null); setPage("home");
@@ -761,6 +791,7 @@ export default function App(){
               {r.mode==="expense"&&r.target&&<span style={{...S.badge,background:"#fffbeb",color:"#d97706",border:"1px solid #fcd34d"}}>{r.target}</span>}
             </div>
             <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#475569"}}>{r.memo||"—"}</div>
+            {r.foreignCurrency&&<div style={{fontSize:11,color:"#0369a1",marginTop:3}}>🌏 {r.foreignCurrency} {r.foreignAmount} · 수수료 {Number(r.feeAmount||0).toLocaleString()}원</div>}
           </div>
           <div style={{textAlign:"right",minWidth:90}}>
             <div style={{fontSize:15,fontWeight:800,color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"+":"-"}{fmt(r.amount)}</div>
