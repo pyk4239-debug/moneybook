@@ -550,8 +550,14 @@ export default function App(){
   const [iMode,   setIMode]   = useState("expense");
   const [editRec, setEditRec] = useState(null);
   const [fMonth,  setFMonth]  = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
+  const [fRange,  setFRange]  = useState("month"); // month|range|all
+  const [fFrom,   setFFrom]   = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
+  const [fTo,     setFTo]     = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
   const [fTarget, setFTarget] = useState("전체");
+  const [fType,   setFType]   = useState("전체");
+  const [fMode,   setFMode]   = useState("전체");
   const [fSearch, setFSearch] = useState("");
+  const [showFilter, setShowFilter] = useState(false);
   const [clipPopup, setClipPopup] = useState(null); // 클립보드 파싱 팝업 데이터
   const [toast,   setToast]   = useState("");
 
@@ -622,10 +628,8 @@ export default function App(){
     setEditRec(null); setPage("home");
   };
 
-  const handleDel=async id=>{
-    if(!confirm("삭제할까요?"))return;
-    await deleteDoc(doc(db,"records",id));
-    showToast("삭제됨");
+  const handleDel=id=>{
+    deleteDoc(doc(db,"records",id)).then(()=>showToast("삭제됨")).catch(()=>showToast("삭제 실패"));
   };
 
   const startEdit=r=>{setEditRec(r);setIMode(r.mode||"expense");setPage("input");};
@@ -635,18 +639,21 @@ export default function App(){
     return (b.createdAt||0)-(a.createdAt||0); // 같은 날짜면 최신 입력 순
   });
   const filtered=sorted.filter(r=>{
-    const kw = fSearch.trim().toLowerCase();
-    if(kw) {
-      // 검색어 있으면 전체 데이터에서 검색 (월 필터 무시)
-      const tm = fTarget==="전체"||r.target===fTarget;
-      const sm = (r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
-      return tm&&sm;
+    const kw  = fSearch.trim().toLowerCase();
+    const tm  = fTarget==="전체"||r.target===fTarget;
+    const tym = fType==="전체"||r.type===fType;
+    const mm2 = fMode==="전체"||(fMode==="지출"?r.mode==="expense":r.mode==="income");
+    const sm  = !kw || (r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
+    let dm = true;
+    if(!kw){
+      // 검색어 없을 때만 기간 필터 적용 (검색어 있으면 전체에서 검색)
+      if(fRange==="month") dm = r.date?.startsWith(fMonth);
+      else if(fRange==="range") dm = r.date>=fFrom+"-01" && r.date<=fTo+"-31";
+      // fRange==="all" → dm=true
     }
-    // 검색어 없으면 월 필터 적용
-    const mm = r.date?.startsWith(fMonth);
-    const tm = fTarget==="전체"||r.target===fTarget;
-    return mm&&tm;
+    return dm&&tm&&tym&&mm2&&sm;
   });
+  const activeFilters=[fTarget,fType,fMode].filter(v=>v!=="전체").length;
   const income  =filtered.filter(r=>r.mode==="income") .reduce((s,r)=>s+Number(r.amount||0),0);
   const expense =filtered.filter(r=>r.mode==="expense").reduce((s,r)=>s+Number(r.amount||0),0);
   const mRecs=sorted.filter(r=>r.date?.startsWith(fMonth));
@@ -683,13 +690,21 @@ export default function App(){
 
     {/* 홈 */}
     {page==="home"&&<>
-      <div style={S.filterBar}>
-        <input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={S.mInput}/>
-        <select value={fTarget} onChange={e=>setFTarget(e.target.value)} style={S.sel}>{["전체",...TARGETS].map(t=><option key={t}>{t}</option>)}</select>
+      {/* 기간 탭 */}
+      <div style={{display:"flex",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
+        {[["month","당월"],["range","기간"],["all","전체"]].map(([key,label])=>(
+          <button key={key} onClick={()=>setFRange(key)} style={{flex:1,padding:"10px 4px",background:"none",border:"none",fontSize:13,cursor:"pointer",fontWeight:700,color:fRange===key?"#2563eb":"#94a3b8",borderBottom:fRange===key?"2px solid #2563eb":"2px solid transparent"}}>{label}</button>
+        ))}
       </div>
-      {/* 검색창 */}
-      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
-        <div style={{display:"flex",alignItems:"center",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"8px 12px",gap:8}}>
+      {/* 기간 상세 */}
+      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center"}}>
+        {fRange==="month"&&<input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={{...S.mInput,flex:2}}/>}
+        {fRange==="range"&&<><input type="month" value={fFrom} onChange={e=>setFFrom(e.target.value)} style={{...S.mInput,flex:1}}/><span style={{color:"#94a3b8",fontSize:13}}>~</span><input type="month" value={fTo} onChange={e=>setFTo(e.target.value)} style={{...S.mInput,flex:1}}/></>}
+        {fRange==="all"&&<span style={{fontSize:13,color:"#94a3b8",flex:1}}>전체 기간</span>}
+      </div>
+      {/* 검색 + 필터 버튼 */}
+      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9",display:"flex",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"8px 12px",gap:8,flex:1}}>
           <span style={{fontSize:15,color:"#94a3b8"}}>🔍</span>
           <input
             type="text"
@@ -701,7 +716,22 @@ export default function App(){
           />
           {fSearch&&<button onClick={()=>setFSearch("")} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,padding:0,lineHeight:1}}>✕</button>}
         </div>
+        <button onClick={()=>setShowFilter(f=>!f)} style={{background:activeFilters>0?"#2563eb":"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"0 12px",color:activeFilters>0?"#fff":"#64748b",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+          🎚️{activeFilters>0?` ${activeFilters}`:""}
+        </button>
       </div>
+      {/* 필터 패널 */}
+      {showFilter&&<div style={{background:"#f8fafc",borderBottom:"1px solid #f1f5f9",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+        {[["구분",["전체","지출","수입"],fMode,setFMode,"#2563eb"],["유형",["전체","카드","현금","은행"],fType,setFType,"#7c3aed"],["대상",["전체",...TARGETS],fTarget,setFTarget,"#f59e0b"]].map(([label,opts,val,setter,color])=>(
+          <div key={label} style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:12,color:"#64748b",minWidth:36,fontWeight:600}}>{label}</span>
+            <div style={{display:"flex",gap:6,flex:1}}>
+              {opts.map(v=><button key={v} onClick={()=>setter(v)} style={{flex:1,padding:"6px 4px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",border:val===v?`1.5px solid ${color}`:"1.5px solid #e2e8f0",background:val===v?color+"11":"#fff",color:val===v?color:"#94a3b8"}}>{v}</button>)}
+            </div>
+          </div>
+        ))}
+        <button onClick={()=>{setFTarget("전체");setFType("전체");setFMode("전체");}} style={{background:"none",border:"1px solid #e2e8f0",borderRadius:8,padding:"6px",fontSize:12,color:"#94a3b8",cursor:"pointer"}}>🔄 필터 초기화</button>
+      </div>}
       <div style={S.sumRow}>
         {[["수입",income,"#22c55e","#16a34a"],["지출",expense,"#ef4444","#dc2626"],["잔액",income-expense,"#3b82f6",income-expense>=0?"#2563eb":"#dc2626"]].map(([l,v,bc,tc2])=>(
           <div key={l} style={{...S.sumCard,borderTop:`3px solid ${bc}`}}>
@@ -715,6 +745,8 @@ export default function App(){
           <span style={{fontSize:12,color:"#94a3b8"}}>
             {filtered.length}건
             {fSearch && <span style={{color:"#2563eb",fontWeight:600}}> 전체에서 "{fSearch}" 검색</span>}
+            {!fSearch&&fRange==="range"&&<span style={{color:"#475569"}}> ({fFrom}~{fTo})</span>}
+            {!fSearch&&fRange==="all"&&<span style={{color:"#475569"}}> (전체)</span>}
           </span>
           <span style={{fontSize:13,color:"#dc2626",fontWeight:700}}>지출합계 {fmt(expense)}</span>
         </div>
@@ -819,7 +851,7 @@ const S={
   subBar:  {display:"flex",borderBottom:"1px solid #f1f5f9",padding:"0 16px",gap:4,background:"#fff"},
   subBtn:  {padding:"10px 14px",background:"none",border:"none",color:"#94a3b8",fontSize:13,cursor:"pointer",fontWeight:600,borderBottom:"2px solid transparent"},
   subOn:   {color:"#2563eb",borderBottom:"2px solid #3b82f6"},
-  form:    {padding:"16px 20px",display:"flex",flexDirection:"column",gap:14,background:"#f8fafc"},
+  form:    {padding:"16px 20px",paddingBottom:"100px",display:"flex",flexDirection:"column",gap:14,background:"#f8fafc"},
   ft:      {fontSize:17,fontWeight:800,letterSpacing:-0.5,color:"#1e293b",marginBottom:2},
   inp:     {flex:1,background:"#fff",border:"1.5px solid #e2e8f0",borderRadius:9,color:"#1e293b",padding:"9px 12px",fontSize:14,outline:"none"},
   saveBtn: {background:"#2563eb",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer",width:"100%"},
