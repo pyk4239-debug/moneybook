@@ -468,14 +468,9 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);setTab("manual");prev.current=editData;}},[editData]);
   const blue={bg:"#eff6ff",b:"#3b82f6",c:"#2563eb"}, yel={bg:"#fffbeb",b:"#f59e0b",c:"#d97706"};
-  const doSave=async()=>{
+  const doSave=()=>{
     if(!form.amount||isNaN(form.amount)) return showToast("금액을 입력하세요");
-    try {
-      await onSave({...form, amount:Number(form.amount)});
-      setForm(blankE(expCats[0])); setPaste(""); setParsed(null); setPs("idle");
-    } catch(e) {
-      showToast("저장 실패 — 다시 시도해주세요");
-    }
+    onSave({...form, amount:Number(form.amount)});
   };
   const doParse=async()=>{
     setPs("loading");
@@ -613,14 +608,9 @@ function IncPage({incCats,onSave,editData,onCancel,showToast}){
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);prev.current=editData;}},[editData]);
   const grn={bg:"#f0fdf4",b:"#22c55e",c:"#16a34a"};
-  const doSave=async()=>{
+  const doSave=()=>{
     if(!form.amount||isNaN(form.amount)) return showToast("금액을 입력하세요");
-    try {
-      await onSave({...form,amount:Number(form.amount)});
-      setForm(blankI(incCats[0]));
-    } catch(e) {
-      showToast("저장 실패 — 다시 시도해주세요");
-    }
+    onSave({...form,amount:Number(form.amount)});
   };
   return <div style={S.form}>
     <div style={S.ft}>{editData?"✏️ 수입 수정":"💰 수입 입력"}</div>
@@ -712,13 +702,11 @@ export default function App(){
 
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(""),2200);};
 
-  const handleSave=async data=>{
+  const handleSave= data=>{
     if(editRec){
-      await updateDoc(doc(db,"records",editRec.id), data);
-      showToast("수정 완료 ✓");
+      updateDoc(doc(db,"records",editRec.id), data).then(()=>showToast("수정 완료 ✓"));
     } else {
-      await addDoc(collection(db,"records"), {...data, createdAt: Date.now()});
-      showToast("저장 완료 ✓");
+      addDoc(collection(db,"records"), {...data, createdAt: Date.now()}).then(()=>showToast("저장 완료 ✓"));
     }
     setEditRec(null); setPage("home");
   };
