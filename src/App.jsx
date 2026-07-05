@@ -542,7 +542,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       {!form.foreignCurrency&&<Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
 
       <Row label="메모"><input type="text" placeholder="사용처·메모" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
-      <button onClick={doSave} disabled={saving} style={{...S.saveBtn,background:saving?"#94a3b8":undefined}}>{saving?"저장 중...":editData?"수정 저장":"저장"}</button>
+      <button onClick={doSave} style={{...S.saveBtn,background:saving?"#94a3b8":undefined}}>{saving?"저장 중...":editData?"수정 저장":"저장"}</button>
       {editData&&<button onClick={onCancel} style={S.cancelBtn}>취소</button>}
     </div>}
     {tab==="paste"&&<div style={S.form}>
@@ -607,7 +607,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
         <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
         <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
-        <button onClick={doSave} disabled={saving} style={{...S.saveBtn,background:saving?"#94a3b8":undefined}}>{saving?"저장 중...":"저장"}</button>
+        <button onClick={doSave} style={{...S.saveBtn,background:saving?"#94a3b8":undefined}}>{saving?"저장 중...":"저장"}</button>
       </div>}
     </div>}
   </div>;
@@ -640,7 +640,7 @@ function IncPage({incCats,onSave,editData,onCancel,showToast}){
     <Row label="카테고리"><Seg items={incCats} value={form.category} onChange={v=>setForm({...form,category:v})} ac={grn}/></Row>
     <Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
     <Row label="메모"><input type="text" placeholder="출처·메모" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
-    <button onClick={doSave} disabled={saving} style={{...S.saveBtn,background:saving?"#94a3b8":"#16a34a"}}>{saving?"저장 중...":editData?"수정 저장":"저장"}</button>
+    <button onClick={doSave} style={{...S.saveBtn,background:saving?"#94a3b8":"#16a34a"}}>{saving?"저장 중...":editData?"수정 저장":"저장"}</button>
     {editData&&<button onClick={onCancel} style={S.cancelBtn}>취소</button>}
   </div>;
 }
