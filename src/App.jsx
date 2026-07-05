@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, setDoc, doc, query } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, setDoc, doc, query, orderBy } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDu46TGSkqSeDrsBs3UHOMNJX03L-_V-Po",
@@ -18,42 +18,58 @@ const DEFAULT_INC = ["급여","부업","이자","기타수입"];
 const TARGETS     = ["개인","가족","기타"];
 const EXP_TYPES   = ["카드","현금","은행"];
 const INC_TYPES   = ["은행입금","현금수입"];
-const FX_FEE      = 0.00198; // 해외 수수료 0.198%
 
-const fmt  = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
-const fmtM = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원"; };
-const fmtD = d => { if(!d)return""; const[,m,v]=d.split("-"); return`${m}/${v}`; };
-const today= () => { const d=new Date(); return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const fmt   = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
+const fmtM  = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원"; };
+const fmtD  = d => { if(!d)return""; const[,m,v]=d.split("-"); return`${m}/${v}`; };
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
 
-async function fetchRate(cur) {
-  try { const r=await fetch(`https://api.frankfurter.app/latest?from=${cur}&to=KRW`); const d=await r.json(); return d.rates?.KRW||null; } catch{}
-  try { const r=await fetch(`https://open.er-api.com/v6/latest/${cur}`); const d=await r.json(); return d.rates?.KRW||null; } catch{}
-  return null;
+async function fetchRate(currency) {
+  try {
+    const res = await fetch(`https://api.frankfurter.app/latest?from=${currency}&to=KRW`);
+    const data = await res.json();
+    return data.rates?.KRW || null;
+  } catch {
+    try {
+      const res = await fetch(`https://open.er-api.com/v6/latest/${currency}`);
+      const data = await res.json();
+      return data.rates?.KRW || null;
+    } catch { return null; }
+  }
 }
 
 async function parseCard(txt) {
   const r={};
-  const fxM=txt.match(/금액[\s:]*([\u0041-\u005A]{3})\s*([\d,.]+)/);
-  const wonM=txt.match(/금액[\s:]*([\d,]+)원/);
-  const pM=txt.match(/사용처[\s:]*(.+)/);
-  const tM=txt.match(/거래시간[\s:]*(\d{2}\/\d{2})/);
-  if(fxM){
-    const cur=fxM[1], foreign=parseFloat(fxM[2].replace(/,/g,""));
-    r.foreignAmount=foreign; r.foreignCurrency=cur;
-    const rate=await fetchRate(cur);
-    if(rate){
-      const wonBase=Math.round(foreign*rate);
-      const fee=Math.round(wonBase*FX_FEE);
-      r.wonBase=wonBase; r.feeAmount=fee; r.amount=wonBase+fee;
-      r.rateInfo=`${cur} ${foreign} × ${Math.round(rate).toLocaleString()} = ${wonBase.toLocaleString()}원 + 수수료 ${fee.toLocaleString()}원`;
-    } else { r.rateError=true; }
-  } else if(wonM){ r.amount=parseInt(wonM[1].replace(/,/g,""),10); }
-  if(pM) r.memo=pM[1].trim();
-  if(tM){ const[mo,dy]=tM[1].split("/"); r.date=`${new Date().getFullYear()}-${mo.padStart(2,"0")}-${dy.padStart(2,"0")}`; }
+  // 외화 감지: CAD17.52 / USD 12.50 형식
+  const fxMatch = txt.match(/금액\s*([A-Z]{3})\s*([\d,.]+)/);
+  const wonMatch = txt.match(/금액\s*([\d,]+)원/);
+
+  if(fxMatch) {
+    const currency = fxMatch[1];
+    const foreign = parseFloat(fxMatch[2].replace(/,/g,""));
+    r.foreignAmount = foreign;
+    r.foreignCurrency = currency;
+    const rate = await fetchRate(currency);
+    if(rate) {
+      r.amount = Math.round(foreign * rate);
+      r.rateInfo = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} ≈ ${r.amount.toLocaleString()}원`;
+    } else {
+      r.rateError = true;
+    }
+  } else if(wonMatch) {
+    r.amount = parseInt(wonMatch[1].replace(/,/g,""), 10);
+  }
+
+  const p=txt.match(/사용처\s*(.+)/), t=txt.match(/거래시간\s*(\d{2}\/\d{2})/);
+  if(p) r.memo=p[1].trim();
+  if(t) { const[mo,dy]=t[1].split("/"); r.date=`${new Date().getFullYear()}-${mo.padStart(2,"0")}-${dy.padStart(2,"0")}`; }
   return r;
 }
 
-function dlCSV(rows){
+function dlCSV(rows) {
   const hdr=["날짜","구분","유형","카테고리","대상","금액","메모"];
   const body=rows.map(r=>[r.date,r.mode==="income"?"수입":"지출",r.type,r.category,r.mode==="income"?"":(r.target||""),r.amount,r.memo||""]);
   const csv=[hdr,...body].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
@@ -61,32 +77,41 @@ function dlCSV(rows){
   a.download=`가계부_${new Date().toISOString().slice(0,7)}.csv`; a.click();
 }
 
-function loadArr(key,def){ try{ const v=localStorage.getItem(key); if(!v)return def; const p=JSON.parse(v); return Array.isArray(p)&&p.length>0?p:def; }catch{return def;} }
+function loadArr(key,def) {
+  try { const v=localStorage.getItem(key); if(!v)return def; const p=JSON.parse(v); return Array.isArray(p)&&p.length>0?p:def; } catch{return def;}
+}
+
 let _uid=Date.now(); const uid=()=>String(++_uid);
-const blankE=c=>({mode:"expense",date:today(),type:"카드",category:c||"식비",target:"개인",amount:"",memo:""});
-const blankI=c=>({mode:"income",date:today(),type:"은행입금",category:c||"급여",target:"",amount:"",memo:""});
+const blankE=(c)=>({mode:"expense",date:today(),type:"카드",   category:c||"식비",target:"개인",amount:"",memo:""});
+const blankI=(c)=>({mode:"income", date:today(),type:"은행입금",category:c||"급여",target:"",   amount:"",memo:""});
 
-function Row({label,children}){return(<div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:13,color:"#64748b",minWidth:60,flexShrink:0}}>{label}</span>{children}</div>);}
-function Seg({items,value,onChange,ac}){return(<div style={{display:"flex",gap:5,flex:1,flexWrap:"wrap"}}>{items.map(t=><button key={t} onClick={()=>onChange(t)} style={{flex:1,minWidth:44,padding:"8px 4px",borderRadius:8,fontSize:12,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap",border:value===t?`1.5px solid ${ac.b}`:"1.5px solid #e2e8f0",background:value===t?ac.bg:"#f8fafc",color:value===t?ac.c:"#94a3b8"}}>{t}</button>)}</div>);}
+/* ── 공용 UI ── */
+function Row({label,children}){return (<div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:13,color:"#64748b",minWidth:60,flexShrink:0}}>{label}</span>{children}</div>);}
+function Seg({items,value,onChange,ac}){return (<div style={{display:"flex",gap:5,flex:1,flexWrap:"wrap"}}>{items.map(t=><button key={t} onClick={()=>onChange(t)} style={{flex:1,minWidth:44,padding:"8px 4px",borderRadius:8,fontSize:12,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap",border:value===t?`1.5px solid ${ac.b}`:"1.5px solid #e2e8f0",background:value===t?ac.bg:"#f8fafc",color:value===t?ac.c:"#94a3b8"}}>{t}</button>)}</div>);}
 
-function CatRow({cat,onEdit,onDelete}){
+/* ── 카테고리 행 (완전 독립 컴포넌트) ── */
+function CatRow({cat, onEdit, onDelete}){
   return <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:"#f8fafc",borderRadius:8,border:"1px solid #f1f5f9"}}>
     <span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{cat}</span>
-    <button onClick={onEdit} style={Sc.cbEdit}>수정</button>
+    <button onClick={onEdit}   style={Sc.cbEdit}>수정</button>
     <button onClick={onDelete} style={Sc.cbDel}>삭제</button>
   </div>;
 }
-function CatEditRow({initVal,onSave,onCancel}){
+
+/* ── 카테고리 수정 행 (완전 독립 컴포넌트, 자체 input state) ── */
+function CatEditRow({initVal, onSave, onCancel}){
   const [val,setVal]=useState(initVal);
   return <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:"#eff6ff",borderRadius:8,border:"1.5px solid #93c5fd"}}>
     <input autoFocus value={val} onChange={e=>setVal(e.target.value)}
       onKeyDown={e=>{if(e.key==="Enter")onSave(val);if(e.key==="Escape")onCancel();}}
       style={{flex:1,background:"#fff",border:"1.5px solid #93c5fd",borderRadius:6,color:"#1e293b",padding:"5px 9px",fontSize:13,outline:"none"}}/>
     <button onClick={()=>onSave(val)} style={Sc.cbSave}>저장</button>
-    <button onClick={onCancel} style={Sc.cbCancel}>취소</button>
+    <button onClick={onCancel}        style={Sc.cbCancel}>취소</button>
   </div>;
 }
-function CatAddRow({onAdd,acColor}){
+
+/* ── 카테고리 추가 행 (완전 독립 컴포넌트, 자체 input state) ── */
+function CatAddRow({onAdd, acColor}){
   const [val,setVal]=useState("");
   return <div style={{display:"flex",gap:8,marginTop:4}}>
     <input type="text" placeholder="새 카테고리 이름" value={val} onChange={e=>setVal(e.target.value)}
@@ -96,278 +121,413 @@ function CatAddRow({onAdd,acColor}){
   </div>;
 }
 
-/* ── 통계 ── */
+/* ── 통계 페이지 ── */
 function StatsPage({mRecs,mExp,mInc,mET,mIT,expCats,fMonth,setFMonth,dlCSV,sorted}){
-  const [selTarget,setSelTarget]=useState("개인");
-  const tColors={"개인":["#3b82f6","#60a5fa"],"가족":["#f59e0b","#fbbf24"],"기타":["#8b5cf6","#a78bfa"]};
-  const targetTotals=["개인","가족","기타"].map(t=>({target:t,total:mExp.filter(r=>r.target===t).reduce((s,r)=>s+Number(r.amount),0)}));
-  const selExp=mExp.filter(r=>r.target===selTarget);
-  const selTotal=selExp.reduce((s,r)=>s+Number(r.amount),0);
-  const catBreakdown=expCats.map(cat=>({cat,total:selExp.filter(r=>r.category===cat).reduce((s,r)=>s+Number(r.amount),0)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
-  const mIT2=mInc.reduce((s,r)=>s+Number(r.amount),0);
-  const incStats=["급여","부업","이자","기타수입"].map(c=>({cat:c,total:mInc.filter(r=>r.category===c).reduce((s,r)=>s+Number(r.amount),0)})).filter(x=>x.total>0);
-  const fmtM2=n=>{if(n==null)return"";const a=Math.abs(n),s=n<0?"-":"";return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원";};
+  const [selTarget, setSelTarget] = useState("개인");
+  const fmt = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
+  const fmtM = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원"; };
+
+  // 대상별 합계
+  const targetTotals = ["개인","가족","기타"].map(t=>({
+    target: t,
+    total: mExp.filter(r=>r.target===t).reduce((s,r)=>s+Number(r.amount),0),
+  }));
+
+  // 선택된 대상의 카테고리별 분석
+  const selExp = mExp.filter(r=>r.target===selTarget);
+  const selTotal = selExp.reduce((s,r)=>s+Number(r.amount),0);
+  const catBreakdown = expCats.map(cat=>({
+    cat,
+    total: selExp.filter(r=>r.category===cat).reduce((s,r)=>s+Number(r.amount),0),
+  })).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+
+  // 수입 카테고리별
+  const mIT2 = mInc.reduce((s,r)=>s+Number(r.amount),0);
+  const incStats = ["급여","부업","이자","기타수입"].map(c=>({
+    cat:c, total:mInc.filter(r=>r.category===c).reduce((s,r)=>s+Number(r.amount),0)
+  })).filter(x=>x.total>0);
+
+  const tColors = {"개인":["#3b82f6","#60a5fa"],"가족":["#f59e0b","#fbbf24"],"기타":["#8b5cf6","#a78bfa"]};
+
   return <div style={{paddingBottom:120}}>
-    <div style={{padding:"14px 20px 10px"}}><input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={{width:"100%",boxSizing:"border-box",background:"#f8fafc",border:"1.5px solid #e2e8f0",color:"#1e293b",borderRadius:8,padding:"8px 12px",fontSize:14}}/></div>
+    {/* 월 선택 */}
+    <div style={{padding:"14px 20px 10px"}}>
+      <input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={{width:"100%",boxSizing:"border-box",background:"#f8fafc",border:"1.5px solid #e2e8f0",color:"#1e293b",borderRadius:8,padding:"8px 12px",fontSize:14}}/>
+    </div>
+
+    {/* 수입/지출 요약 */}
     <div style={{display:"flex",background:"#fff",margin:"0 16px 16px",borderRadius:14,padding:"16px 12px",boxShadow:"0 1px 4px #0000000d"}}>
       {[["수입",mIT,"#16a34a"],["지출",mET,"#dc2626"],["잔액",mIT-mET,mIT-mET>=0?"#2563eb":"#dc2626"]].map(([l,v,c])=>(
-        <div key={l} style={{flex:1,textAlign:"center"}}><div style={{fontSize:11,color:"#94a3b8",marginBottom:4}}>{l}</div><div style={{fontSize:16,fontWeight:800,color:c}}>{fmtM2(v)}</div></div>
+        <div key={l} style={{flex:1,textAlign:"center"}}>
+          <div style={{fontSize:11,color:"#94a3b8",marginBottom:4}}>{l}</div>
+          <div style={{fontSize:16,fontWeight:800,color:c}}>{fmtM(v)}</div>
+        </div>
       ))}
     </div>
-    {/* 대상별 탭 */}
+
+    {/* 대상별 합계 탭 */}
     <div style={{padding:"0 16px 12px"}}>
       <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:10}}>👤 지출 — 대상별 분석</div>
       <div style={{display:"flex",gap:8,marginBottom:16}}>
         {targetTotals.map(({target,total})=>(
-          <button key={target} onClick={()=>setSelTarget(target)} style={{flex:1,padding:"10px 4px",borderRadius:12,cursor:"pointer",border:selTarget===target?`2px solid ${tColors[target][0]}`:"2px solid #f1f5f9",background:selTarget===target?tColors[target][0]+"11":"#fff",boxShadow:"0 1px 4px #0000000d"}}>
+          <button key={target} onClick={()=>setSelTarget(target)} style={{
+            flex:1, padding:"10px 4px", borderRadius:12, cursor:"pointer",
+            border: selTarget===target ? `2px solid ${tColors[target][0]}` : "2px solid #f1f5f9",
+            background: selTarget===target ? tColors[target][0]+"11" : "#fff",
+            boxShadow:"0 1px 4px #0000000d",
+          }}>
             <div style={{fontSize:11,color:selTarget===target?tColors[target][0]:"#94a3b8",fontWeight:700,marginBottom:4}}>{target}</div>
-            <div style={{fontSize:14,fontWeight:800,color:selTarget===target?tColors[target][0]:"#1e293b"}}>{fmtM2(total)}</div>
+            <div style={{fontSize:14,fontWeight:800,color:selTarget===target?tColors[target][0]:"#1e293b"}}>{fmtM(total)}</div>
           </button>
         ))}
       </div>
+
+      {/* 선택된 대상의 카테고리 드릴다운 */}
       <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 4px #0000000d",border:`1.5px solid ${tColors[selTarget][0]}22`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <span style={{fontSize:13,fontWeight:700,color:tColors[selTarget][0]}}>{selTarget} 총 {fmt(selTotal)}</span>
           <span style={{fontSize:11,color:"#94a3b8"}}>{selExp.length}건</span>
         </div>
-        {catBreakdown.length===0&&<div style={{fontSize:13,color:"#94a3b8",textAlign:"center",padding:"12px 0"}}>내역 없음</div>}
-        {catBreakdown.map(({cat,total})=>{const pct=selTotal?Math.round(total/selTotal*100):0;return<div key={cat} style={{marginBottom:14}}>
-          <div style={{display:"flex",alignItems:"center",marginBottom:5}}><span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{cat}</span><span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span><span style={{fontSize:13,fontWeight:700,color:"#1e293b",minWidth:76,textAlign:"right"}}>{fmt(total)}</span></div>
-          <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${tColors[selTarget][0]},${tColors[selTarget][1]})`,borderRadius:4,transition:"width .4s"}}/></div>
-        </div>;})}
+        {catBreakdown.length===0 && <div style={{fontSize:13,color:"#94a3b8",textAlign:"center",padding:"12px 0"}}>내역 없음</div>}
+        {catBreakdown.map(({cat,total})=>{
+          const pct = selTotal ? Math.round(total/selTotal*100) : 0;
+          return <div key={cat} style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+              <span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{cat}</span>
+              <span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span>
+              <span style={{fontSize:13,fontWeight:700,color:"#1e293b",minWidth:76,textAlign:"right"}}>{fmt(total)}</span>
+            </div>
+            <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${tColors[selTarget][0]},${tColors[selTarget][1]})`,borderRadius:4,transition:"width .4s"}}/>
+            </div>
+          </div>;
+        })}
       </div>
     </div>
-    {/* 유형별 */}
+
+    {/* 유형별 분석 */}
     <div style={{padding:"0 16px 16px"}}>
       <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:10}}>💳 지출 — 유형별</div>
       <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 4px #0000000d"}}>
         {["카드","현금","은행"].map(type=>{
-          const total=mExp.filter(r=>r.type===type).reduce((s,r)=>s+Number(r.amount),0); if(!total)return null;
-          const pct=mET?Math.round(total/mET*100):0;
-          const tc=type==="카드"?"#3b82f6":type==="현금"?"#f59e0b":"#8b5cf6";
-          const tg=type==="카드"?"#3b82f6,#60a5fa":type==="현금"?"#f59e0b,#fbbf24":"#8b5cf6,#a78bfa";
-          return<div key={type} style={{marginBottom:14}}>
-            <div style={{display:"flex",alignItems:"center",marginBottom:5}}><span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{type}</span><span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span><span style={{fontSize:13,fontWeight:700,color:tc,minWidth:76,textAlign:"right"}}>{fmt(total)}</span></div>
-            <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${tg})`,borderRadius:4,transition:"width .4s"}}/></div>
+          const total = mExp.filter(r=>r.type===type).reduce((s,r)=>s+Number(r.amount),0);
+          if(!total) return null;
+          const pct = mET ? Math.round(total/mET*100) : 0;
+          const typeColor = type==="카드"?"#3b82f6":type==="현금"?"#f59e0b":"#8b5cf6";
+          const typeGrad  = type==="카드"?"#3b82f6,#60a5fa":type==="현금"?"#f59e0b,#fbbf24":"#8b5cf6,#a78bfa";
+          return <div key={type} style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+              <span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{type}</span>
+              <span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span>
+              <span style={{fontSize:13,fontWeight:700,color:typeColor,minWidth:76,textAlign:"right"}}>{fmt(total)}</span>
+            </div>
+            <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${typeGrad})`,borderRadius:4,transition:"width .4s"}}/>
+            </div>
           </div>;
         })}
-        {mET===0&&<div style={{fontSize:13,color:"#94a3b8",textAlign:"center",padding:"12px 0"}}>내역 없음</div>}
+        {mET===0 && <div style={{fontSize:13,color:"#94a3b8",textAlign:"center",padding:"12px 0"}}>내역 없음</div>}
       </div>
     </div>
+
     {/* 수입 카테고리별 */}
     <div style={{padding:"0 16px 16px"}}>
       <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:10}}>💰 수입 — 카테고리별</div>
       <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 4px #0000000d"}}>
         {incStats.length===0&&<div style={{fontSize:13,color:"#94a3b8",textAlign:"center",padding:"12px 0"}}>내역 없음</div>}
-        {incStats.map(({cat,total})=>{const pct=mIT2?Math.round(total/mIT2*100):0;return<div key={cat} style={{marginBottom:14}}>
-          <div style={{display:"flex",alignItems:"center",marginBottom:5}}><span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{cat}</span><span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span><span style={{fontSize:13,fontWeight:700,color:"#16a34a",minWidth:76,textAlign:"right"}}>{fmt(total)}</span></div>
-          <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#22c55e,#06b6d4)",borderRadius:4,transition:"width .4s"}}/></div>
-        </div>;})}
+        {incStats.map(({cat,total})=>{
+          const pct = mIT2 ? Math.round(total/mIT2*100) : 0;
+          return <div key={cat} style={{marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",marginBottom:5}}>
+              <span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:500}}>{cat}</span>
+              <span style={{fontSize:11,color:"#94a3b8",marginRight:8}}>{pct}%</span>
+              <span style={{fontSize:13,fontWeight:700,color:"#16a34a",minWidth:76,textAlign:"right"}}>{fmt(total)}</span>
+            </div>
+            <div style={{height:8,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#22c55e,#06b6d4)",borderRadius:4,transition:"width .4s"}}/>
+            </div>
+          </div>;
+        })}
       </div>
     </div>
+
+    {/* 다운로드 */}
     <div style={{padding:"0 16px 20px",display:"flex",flexDirection:"column",gap:10}}>
-      <button onClick={()=>dlCSV(mRecs)} style={{background:"#0f766e",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer"}}>📥 이번 달({fMonth.replace("-","년 ")}월) 다운로드</button>
-      <button onClick={()=>dlCSV(sorted)} style={{background:"#475569",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer"}}>📦 전체 내역 다운로드</button>
+      <button onClick={()=>dlCSV(mRecs)} style={{background:"#0f766e",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+        📥 이번 달({fMonth.replace("-","년 ")}월) 다운로드
+      </button>
+      <button onClick={()=>dlCSV(sorted)} style={{background:"#475569",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer"}}>
+        📦 전체 내역 다운로드
+      </button>
     </div>
   </div>;
 }
 
-/* ── CSV 업로드 ── */
-function UploadPage({onImport,onBack,showToast}){
-  const [preview,setPreview]=useState(null);
-  const [fileName,setFileName]=useState("");
-  const parseCSV=text=>{
-    const lines=text.split(/\r?\n/).filter(l=>l.trim());
-    if(lines.length<2)return[];
+/* ── CSV 업로드 페이지 ── */
+function UploadPage({onImport, onBack, showToast}){
+  const [preview, setPreview] = useState(null); // 파싱된 행 배열
+  const [fileName, setFileName] = useState("");
+  let _id = Date.now();
+  const newUid = () => String(++_id);
+
+  const parseCSV = (text) => {
+    const lines = text.split(/\r?\n/).filter(l=>l.trim());
+    if(lines.length < 2) return [];
+    // 헤더 skip (첫 줄)
     return lines.slice(1).map(line=>{
-      const cols=[]; let cur="",inQ=false;
-      for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'){inQ=!inQ;continue;}if(ch===','&&!inQ){cols.push(cur.trim());cur="";continue;}cur+=ch;}
+      // 쌍따옴표 처리
+      const cols = [];
+      let cur="", inQ=false;
+      for(let i=0;i<line.length;i++){
+        const ch=line[i];
+        if(ch==='"'){ inQ=!inQ; continue; }
+        if(ch===','&&!inQ){ cols.push(cur.trim()); cur=""; continue; }
+        cur+=ch;
+      }
       cols.push(cur.trim());
-      const[date,구분,type,category,target,amountRaw,memo]=cols;
-      const amount=parseInt((amountRaw||"").replace(/,/g,""),10);
-      if(!date||!구분||isNaN(amount))return null;
-      return{id:uid(),mode:구분==="수입"?"income":"expense",date:date.trim(),type:(type||"").trim(),category:(category||"").trim(),target:(target||"").trim(),amount,memo:(memo||"").trim()};
+      const [date,구분,type,category,target,amountRaw,memo] = cols;
+      const amount = parseInt((amountRaw||"").replace(/,/g,""), 10);
+      if(!date||!구분||isNaN(amount)) return null;
+      return {
+        id: newUid(),
+        mode: 구분==="수입"?"income":"expense",
+        date: date.trim(),
+        type: (type||"").trim(),
+        category: (category||"").trim(),
+        target: (target||"").trim(),
+        amount,
+        memo: (memo||"").trim(),
+      };
     }).filter(Boolean);
   };
-  const handleFile=e=>{
-    const file=e.target.files[0]; if(!file)return;
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
     setFileName(file.name);
-    const reader=new FileReader();
-    reader.onload=ev=>{const text=ev.target.result.replace(/^\uFEFF/,"");const rows=parseCSV(text);if(rows.length===0)return showToast("파싱 실패");setPreview(rows);};
-    reader.readAsText(file,"utf-8");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      // BOM 제거
+      const text = ev.target.result.replace(/^\uFEFF/,"");
+      const rows = parseCSV(text);
+      if(rows.length===0) return showToast("파싱 실패 — 포맷을 확인하세요");
+      setPreview(rows);
+    };
+    reader.readAsText(file, "utf-8");
   };
-  return<div style={{minHeight:"100vh",background:"#f8fafc",display:"flex",flexDirection:"column"}}>
+
+  const handleImport = () => {
+    if(!preview||preview.length===0) return;
+    onImport(preview);
+    showToast(`${preview.length}건 가져오기 완료 ✓`);
+    onBack();
+  };
+
+  const fmt = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
+
+  return <div style={{minHeight:"100vh",background:"#f8fafc",display:"flex",flexDirection:"column"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px",background:"#fff",borderBottom:"1px solid #f1f5f9",position:"sticky",top:0,zIndex:10}}>
       <span style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>📂 데이터 가져오기</span>
       <button onClick={onBack} style={{background:"#f1f5f9",border:"none",color:"#64748b",borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>← 닫기</button>
     </div>
+
     <div style={{padding:"20px",display:"flex",flexDirection:"column",gap:16}}>
+      {/* 포맷 안내 */}
       <div style={{background:"#f0f9ff",borderRadius:12,padding:"14px 16px",border:"1px dashed #93c5fd"}}>
         <div style={{fontSize:12,color:"#2563eb",fontWeight:700,marginBottom:8}}>📋 CSV 파일 포맷</div>
-        <pre style={{fontSize:11,color:"#64748b",marginTop:8,lineHeight:1.7,overflowX:"auto"}}>{`날짜,구분,유형,카테고리,대상,금액,메모\n2025-04-24,지출,카드,식비,개인,19000,NHN링크\n2025-04-01,수입,은행입금,급여,,3000000,4월급여`}</pre>
+        <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>
+          <div>• 앱에서 다운로드한 CSV를 그대로 올려도 돼요</div>
+          <div>• 직접 만들 경우 아래 헤더 순서를 지켜주세요</div>
+        </div>
+        <pre style={{fontSize:11,color:"#64748b",marginTop:8,lineHeight:1.7,overflowX:"auto"}}>
+{`날짜,구분,유형,카테고리,대상,금액,메모
+2025-04-24,지출,카드,식비,개인,19000,NHN링크
+2025-04-01,수입,은행입금,급여,,3000000,4월급여`}
+        </pre>
       </div>
+
+      {/* 파일 선택 */}
       <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:"28px",background:"#fff",borderRadius:12,border:"2px dashed #e2e8f0",cursor:"pointer"}}>
         <span style={{fontSize:32}}>📁</span>
         <span style={{fontSize:14,color:"#475569",fontWeight:600}}>{fileName||"CSV 파일 선택"}</span>
+        <span style={{fontSize:12,color:"#94a3b8"}}>탭해서 파일 선택</span>
         <input type="file" accept=".csv,text/csv" onChange={handleFile} style={{display:"none"}}/>
       </label>
-      {preview&&<>
+
+      {/* 미리보기 */}
+      {preview && <>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>미리보기 ({preview.length}건)</span>
           <button onClick={()=>{setPreview(null);setFileName("");}} style={{background:"none",border:"none",color:"#94a3b8",fontSize:12,cursor:"pointer"}}>초기화</button>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:340,overflowY:"auto"}}>
-          {preview.map((r,i)=><div key={i} style={{background:"#fff",borderRadius:10,padding:"10px 12px",border:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div><div style={{display:"flex",gap:4,marginBottom:4}}><span style={{fontSize:10,borderRadius:4,padding:"2px 6px",fontWeight:600,background:r.mode==="income"?"#f0fdf4":"#fef2f2",color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"수입":"지출"}</span><span style={{fontSize:10,borderRadius:4,padding:"2px 6px",background:"#f1f5f9",color:"#64748b"}}>{r.category}</span></div><div style={{fontSize:12,color:"#475569"}}>{r.date} · {r.memo||"—"}</div></div>
-            <div style={{fontSize:14,fontWeight:700,color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"+":"-"}{fmt(r.amount)}</div>
-          </div>)}
+          {preview.map((r,i)=>(
+            <div key={i} style={{background:"#fff",borderRadius:10,padding:"10px 12px",border:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{display:"flex",gap:4,marginBottom:4,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,borderRadius:4,padding:"2px 6px",fontWeight:600,background:r.mode==="income"?"#f0fdf4":"#fef2f2",color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"수입":"지출"}</span>
+                  <span style={{fontSize:10,borderRadius:4,padding:"2px 6px",background:"#f1f5f9",color:"#64748b"}}>{r.category}</span>
+                  {r.target&&<span style={{fontSize:10,borderRadius:4,padding:"2px 6px",background:"#fffbeb",color:"#d97706"}}>{r.target}</span>}
+                </div>
+                <div style={{fontSize:12,color:"#475569"}}>{r.date} · {r.memo||"—"}</div>
+              </div>
+              <div style={{fontSize:14,fontWeight:700,color:r.mode==="income"?"#16a34a":"#dc2626",textAlign:"right"}}>
+                {r.mode==="income"?"+":"-"}{fmt(r.amount)}
+              </div>
+            </div>
+          ))}
         </div>
-        <button onClick={()=>{onImport(preview);showToast(`${preview.length}건 가져오기 완료 ✓`);onBack();}} style={{background:"linear-gradient(135deg,#2563eb,#7c3aed)",color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:700,cursor:"pointer",width:"100%"}}>✅ {preview.length}건 가져오기</button>
+        <button onClick={handleImport}
+          style={{background:"linear-gradient(135deg,#2563eb,#7c3aed)",color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:700,cursor:"pointer",width:"100%"}}>
+          ✅ {preview.length}건 가져오기
+        </button>
       </>}
     </div>
   </div>;
 }
 
-/* ── 설정 ── */
+/* ── 설정 화면 ── */
 function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast}){
-  const [editIdx,setEditIdx]=useState(null);
-  const doEdit=(type,idx,val)=>{const v=val.trim();if(!v)return;if(type==="exp"){const n=[...expCats];n[idx]=v;setExpCats(n);}else{const n=[...incCats];n[idx]=v;setIncCats(n);}setEditIdx(null);showToast("수정됨 ✓");};
-  const doDelete=(type,idx)=>{if(type==="exp"){if(expCats.length<=1)return showToast("최소 1개 필요");setExpCats(expCats.filter((_,i)=>i!==idx));}else{if(incCats.length<=1)return showToast("최소 1개 필요");setIncCats(incCats.filter((_,i)=>i!==idx));}showToast("삭제됨");};
-  const doAdd=(type,val)=>{const v=val.trim();if(!v)return;if(type==="exp"){if(expCats.includes(v))return showToast("이미 있어요");setExpCats([...expCats,v]);}else{if(incCats.includes(v))return showToast("이미 있어요");setIncCats([...incCats,v]);}showToast("추가됨 ✓");};
-  return<div style={{minHeight:"100vh",background:"#f8fafc",display:"flex",flexDirection:"column"}}>
+  const [editIdx,setEditIdx]=useState(null); // {type,idx}
+
+  const doEdit=(type,idx,val)=>{
+    const v=val.trim(); if(!v)return;
+    if(type==="exp"){const n=[...expCats];n[idx]=v;setExpCats(n);}
+    else            {const n=[...incCats];n[idx]=v;setIncCats(n);}
+    setEditIdx(null); showToast("수정됨 ✓");
+  };
+  const doDelete=(type,idx)=>{
+    if(type==="exp"){if(expCats.length<=1)return showToast("최소 1개 필요");setExpCats(expCats.filter((_,i)=>i!==idx));}
+    else            {if(incCats.length<=1)return showToast("최소 1개 필요");setIncCats(incCats.filter((_,i)=>i!==idx));}
+    showToast("삭제됨");
+  };
+  const doAdd=(type,val)=>{
+    const v=val.trim(); if(!v)return;
+    if(type==="exp"){if(expCats.includes(v))return showToast("이미 있어요");setExpCats([...expCats,v]);}
+    else            {if(incCats.includes(v))return showToast("이미 있어요");setIncCats([...incCats,v]);}
+    showToast("추가됨 ✓");
+  };
+
+  return <div style={{minHeight:"100vh",background:"#f8fafc",display:"flex",flexDirection:"column"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px",background:"#fff",borderBottom:"1px solid #f1f5f9",position:"sticky",top:0,zIndex:10}}>
       <span style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>⚙️ 카테고리 설정</span>
       <button onClick={onBack} style={{background:"#f1f5f9",border:"none",color:"#64748b",borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>← 닫기</button>
     </div>
     <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:10,paddingBottom:60}}>
-      <div style={{fontSize:12,color:"#64748b",fontWeight:700,letterSpacing:0.5}}>💸 지출 카테고리</div>
-      {expCats.map((c,i)=>editIdx?.type==="exp"&&editIdx.idx===i?<CatEditRow key={`exp-e-${i}`} initVal={c} onSave={v=>doEdit("exp",i,v)} onCancel={()=>setEditIdx(null)}/>:<CatRow key={`exp-${i}`} cat={c} onEdit={()=>setEditIdx({type:"exp",idx:i})} onDelete={()=>doDelete("exp",i)}/>)}
+      
+      <div style={{fontSize:12,color:"#64748b",fontWeight:700,letterSpacing:0.5,marginTop:4}}>💸 지출 카테고리</div>
+      {expCats.map((c,i)=>(
+        editIdx?.type==="exp"&&editIdx.idx===i
+          ? <CatEditRow key={`exp-edit-${i}`} initVal={c} onSave={v=>doEdit("exp",i,v)} onCancel={()=>setEditIdx(null)}/>
+          : <CatRow    key={`exp-${i}`}       cat={c}     onEdit={()=>setEditIdx({type:"exp",idx:i})} onDelete={()=>doDelete("exp",i)}/>
+      ))}
       <CatAddRow onAdd={v=>doAdd("exp",v)} acColor="#2563eb"/>
+
       <div style={{borderTop:"1px solid #f1f5f9",marginTop:8,paddingTop:16,fontSize:12,color:"#64748b",fontWeight:700,letterSpacing:0.5}}>💰 수입 카테고리</div>
-      {incCats.map((c,i)=>editIdx?.type==="inc"&&editIdx.idx===i?<CatEditRow key={`inc-e-${i}`} initVal={c} onSave={v=>doEdit("inc",i,v)} onCancel={()=>setEditIdx(null)}/>:<CatRow key={`inc-${i}`} cat={c} onEdit={()=>setEditIdx({type:"inc",idx:i})} onDelete={()=>doDelete("inc",i)}/>)}
+      {incCats.map((c,i)=>(
+        editIdx?.type==="inc"&&editIdx.idx===i
+          ? <CatEditRow key={`inc-edit-${i}`} initVal={c} onSave={v=>doEdit("inc",i,v)} onCancel={()=>setEditIdx(null)}/>
+          : <CatRow    key={`inc-${i}`}       cat={c}     onEdit={()=>setEditIdx({type:"inc",idx:i})} onDelete={()=>doDelete("inc",i)}/>
+      ))}
       <CatAddRow onAdd={v=>doAdd("inc",v)} acColor="#16a34a"/>
+
       <div style={{borderTop:"1px solid #f1f5f9",marginTop:8,paddingTop:16,textAlign:"center"}}>
-        <button onClick={()=>{setExpCats(DEFAULT_EXP);setIncCats(DEFAULT_INC);showToast("초기화됨");}} style={{background:"none",border:"1px solid #e2e8f0",color:"#94a3b8",borderRadius:8,padding:"8px 16px",fontSize:12,cursor:"pointer"}}>🔄 기본값으로 초기화</button>
+        <button onClick={()=>{if(!confirm("기본값으로 초기화할까요?"))return;setExpCats(DEFAULT_EXP);setIncCats(DEFAULT_INC);showToast("초기화됨");}}
+          style={{background:"none",border:"1px solid #e2e8f0",color:"#94a3b8",borderRadius:8,padding:"8px 16px",fontSize:12,cursor:"pointer"}}>
+          🔄 기본값으로 초기화
+        </button>
       </div>
     </div>
   </div>;
 }
 
-/* ── 지출 입력 ── */
+/* ── 지출 화면 ── */
 function ExpPage({expCats,onSave,editData,onCancel,showToast}){
-  const [tab,setTab]=useState("manual");
-  const [form,setForm]=useState(editData||blankE(expCats[0]));
+  const [tab,setTab]=useState(()=>{
+    const clip=sessionStorage.getItem("clipParsed");
+    return clip?"manual":"manual";
+  });
+  const [form,setForm]=useState(()=>{
+    const clip=sessionStorage.getItem("clipParsed");
+    if(clip){ sessionStorage.removeItem("clipParsed"); return JSON.parse(clip); }
+    return editData||blankE(expCats[0]);
+  });
+  const [parsed,setParsed]=useState(()=>!!sessionStorage.getItem("clipParsed"));
   const [paste,setPaste]=useState("");
-  const [parsed,setParsed]=useState(null);
   const [ps,setPs]=useState("idle");
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);setTab("manual");prev.current=editData;}},[editData]);
   const blue={bg:"#eff6ff",b:"#3b82f6",c:"#2563eb"}, yel={bg:"#fffbeb",b:"#f59e0b",c:"#d97706"};
-
-  const doSave=()=>{
-    if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");
-    onSave({...form,amount:Number(form.amount)});
-  };
-
+  const doSave=()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");onSave({...form,amount:Number(form.amount)});setForm(blankE(expCats[0]));setPaste("");setParsed(null);setPs("idle");};
   const doParse=async()=>{
     setPs("loading");
-    const r=await parseCard(paste);
-    if(r.rateError){setPs("idle");return showToast("환율 조회 실패 — 직접 입력해주세요");}
-    if(!r.amount){setPs("idle");return showToast("파싱 실패 — 형식을 확인하세요");}
+    const r = await parseCard(paste);
+    if(r.rateError){ setPs("idle"); return showToast("환율 조회 실패 — 금액을 직접 입력해주세요"); }
+    if(!r.amount){ setPs("idle"); return showToast("파싱 실패 — 형식을 확인하세요"); }
     setParsed(r);
-    setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||"",
-      foreignAmount:r.foreignAmount,foreignCurrency:r.foreignCurrency,wonBase:r.wonBase,feeAmount:r.feeAmount}));
+    setForm(f=>({...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||""}));
     setPs("done");
-    if(r.rateInfo)showToast(`✅ ${r.rateInfo}`);
+    if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`);
     setTimeout(()=>setPs("idle"),2000);
   };
-
-  const doClipboard=async()=>{
-    try{
-      const text=await navigator.clipboard.readText();
-      if(!text)return showToast("클립보드가 비어있어요");
-      setPaste(text);setParsed(null);
-      const r=await parseCard(text);
-      if(r.rateError)return showToast("환율 조회 실패");
-      if(r.amount){
-        setParsed(r);
-        setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||"",
-          foreignAmount:r.foreignAmount,foreignCurrency:r.foreignCurrency,wonBase:r.wonBase,feeAmount:r.feeAmount}));
-        if(r.rateInfo)showToast(`✅ ${r.rateInfo}`);else showToast("자동 파싱 완료 ✓");
-      }else showToast("파싱하기 버튼을 눌러주세요");
-    }catch{showToast("클립보드 접근 실패 — 직접 붙여넣기 해주세요");}
-  };
-
-  return<div>
+  return <div>
     <div style={S.subBar}>
       <button onClick={()=>{setTab("manual");setPaste("");setParsed(null);}} style={{...S.subBtn,...(tab==="manual"?S.subOn:{})}}>✏️ 수동 입력</button>
       <button onClick={()=>setTab("paste")} style={{...S.subBtn,...(tab==="paste"?S.subOn:{})}}>📩 문자 붙여넣기</button>
     </div>
-
     {tab==="manual"&&<div style={S.form}>
       <div style={S.ft}>{editData?"✏️ 지출 수정":"💸 지출 입력"}</div>
-      {/* 해외 결제 수정 박스 */}
-      {form.foreignCurrency&&<div style={{background:"#e0f2fe",borderRadius:12,padding:"14px 16px",border:"1.5px solid #38bdf8",display:"flex",flexDirection:"column",gap:10}}>
-        <div style={{fontSize:13,color:"#0369a1",fontWeight:800}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
-        <Row label="승인금액">
-          <input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value);const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff"}}/>
-          <span style={{fontSize:12,color:"#0369a1",marginLeft:4}}>원</span>
-        </Row>
-        <Row label="수수료">
-          <input type="number" value={form.feeAmount||""} onChange={e=>{const fee=Number(e.target.value);setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});}} style={{...S.inp,background:"#fff"}}/>
-          <span style={{fontSize:12,color:"#0369a1",marginLeft:4}}>원</span>
-        </Row>
-        <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid #bae6fd",paddingTop:8}}>
-          <span style={{fontSize:13,color:"#0369a1",fontWeight:700}}>합계(청구금액)</span>
-          <span style={{fontSize:16,fontWeight:800,color:"#dc2626"}}>{Number(form.amount||0).toLocaleString()}원</span>
-        </div>
-      </div>}
       <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
       <Row label="유형"><Seg items={EXP_TYPES} value={form.type} onChange={v=>setForm({...form,type:v})} ac={blue}/></Row>
       <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
       <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
-      {!form.foreignCurrency&&<Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
+      <Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
       <Row label="메모"><input type="text" placeholder="사용처·메모" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
       <button onClick={doSave} style={S.saveBtn}>{editData?"수정 저장":"저장"}</button>
       {editData&&<button onClick={onCancel} style={S.cancelBtn}>취소</button>}
     </div>}
-
     {tab==="paste"&&<div style={S.form}>
       <div style={S.ft}>📩 카드 문자 붙여넣기</div>
       <div style={S.exBox}><div style={S.exL}>하나카드 형식 예시</div><pre style={S.exP}>{"금액 19,000원\n카드 하나2*0*\n사용처 NHN링크\n거래시간 04/24 11:19"}</pre></div>
-      <button onClick={doClipboard} style={{...S.saveBtn,background:"#7c3aed"}}>📋 클립보드에서 자동 붙여넣기</button>
+      {/* 클립보드 붙여넣기 버튼 */}
+      <button onClick={async()=>{
+        try {
+          const text = await navigator.clipboard.readText();
+          if(!text) return showToast("클립보드가 비어있어요");
+          setPaste(text); setParsed(null);
+          const r = await parseCard(text);
+          if(r.rateError) return showToast("환율 조회 실패 — 파싱하기 버튼을 눌러주세요");
+          if(r.amount){ setParsed(r); setForm(f=>({...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""})); if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`); else showToast("자동 파싱 완료 ✓"); }
+          else showToast("문자를 붙여넣었어요 — 파싱하기 버튼을 눌러주세요");
+        } catch(e) { showToast("클립보드 접근 실패 — 아래에 직접 붙여넣기 해주세요"); }
+      }} style={{...S.saveBtn,background:"#7c3aed"}}>
+        📋 클립보드에서 자동 붙여넣기
+      </button>
       <textarea value={paste} onChange={e=>{setPaste(e.target.value);setParsed(null);}} placeholder="또는 여기에 직접 붙여넣기..." style={S.ta}/>
-      <button onClick={doParse} style={{...S.saveBtn,background:ps==="done"?"#16a34a":ps==="loading"?"#94a3b8":"#0f766e"}}>
+      <button onClick={doParse} disabled={ps==="loading"} style={{...S.saveBtn,background:ps==="done"?"#16a34a":ps==="loading"?"#94a3b8":"#0f766e"}}>
         {ps==="loading"?"⏳ 분석 중...":ps==="done"?"✅ 파싱 완료!":"🔍 파싱하기"}
       </button>
       {parsed&&<div style={S.preview}>
         <div style={{fontSize:13,color:"#2563eb",fontWeight:700}}>✅ 파싱 완료 — 카테고리·대상 선택 후 저장</div>
-        {/* 해외 파싱 결과 */}
-        {form.foreignCurrency&&<div style={{background:"#e0f2fe",borderRadius:10,padding:"12px",border:"1px solid #7dd3fc",fontSize:12}}>
-          <div style={{color:"#0369a1",fontWeight:700,marginBottom:6}}>🌏 {form.foreignCurrency} {form.foreignAmount}</div>
-          <Row label="승인금액"><input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value);const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff"}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
-          <Row label="수수료"><input type="number" value={form.feeAmount||""} onChange={e=>{const fee=Number(e.target.value);setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});}} style={{...S.inp,background:"#fff"}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
-          <div style={{marginTop:8,fontWeight:700,color:"#dc2626"}}>합계: {Number(form.amount||0).toLocaleString()}원</div>
-        </div>}
         <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
-        {!form.foreignCurrency&&<Row label="금액"><input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
+        <Row label="금액"><input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
         <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
         <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
+        <button onClick={doSave} style={S.saveBtn}>저장</button>
       </div>}
-      {parsed&&<button onClick={doSave} style={S.saveBtn}>저장</button>}
     </div>}
   </div>;
 }
 
-/* ── 수입 입력 ── */
+/* ── 수입 화면 ── */
 function IncPage({incCats,onSave,editData,onCancel,showToast}){
   const [form,setForm]=useState(editData||blankI(incCats[0]));
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);prev.current=editData;}},[editData]);
   const grn={bg:"#f0fdf4",b:"#22c55e",c:"#16a34a"};
-  const doSave=()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");onSave({...form,amount:Number(form.amount)});};
-  return<div style={S.form}>
+  const doSave=()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");onSave({...form,amount:Number(form.amount)});setForm(blankI(incCats[0]));};
+  return <div style={S.form}>
     <div style={S.ft}>{editData?"✏️ 수입 수정":"💰 수입 입력"}</div>
     <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
     <Row label="유형"><Seg items={INC_TYPES} value={form.type} onChange={v=>setForm({...form,type:v})} ac={grn}/></Row>
@@ -381,90 +541,120 @@ function IncPage({incCats,onSave,editData,onCancel,showToast}){
 
 /* ── 메인 ── */
 export default function App(){
-  const [records,  setRecords]  = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [expCats,  setExpCats]  = useState(DEFAULT_EXP);
-  const [incCats,  setIncCats]  = useState(DEFAULT_INC);
-  const [catLoaded,setCatLoaded]= useState(false);
-  const [page,     setPage]     = useState("home");
-  const [iMode,    setIMode]    = useState("expense");
-  const [editRec,  setEditRec]  = useState(null);
-  const [fMonth,   setFMonth]   = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
-  const [fRange,   setFRange]   = useState("month"); // month|range|all
-  const [fFrom,    setFFrom]    = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
-  const [fTo,      setFTo]      = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
-  const [fTarget,  setFTarget]  = useState("전체");
-  const [fType,    setFType]    = useState("전체");
-  const [fMode,    setFMode]    = useState("전체");
-  const [fSearch,  setFSearch]  = useState("");
-  const [showFilter,setShowFilter]=useState(false);
-  const [toast,    setToast]    = useState("");
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expCats, setExpCats] = useState(DEFAULT_EXP);
+  const [incCats, setIncCats] = useState(DEFAULT_INC);
+  const [catLoaded, setCatLoaded] = useState(false);
+  const [page,    setPage]    = useState("home");
+  const [iMode,   setIMode]   = useState("expense");
+  const [editRec, setEditRec] = useState(null);
+  const [fMonth,  setFMonth]  = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
+  const [fTarget, setFTarget] = useState("전체");
+  const [fSearch, setFSearch] = useState("");
+  const [clipPopup, setClipPopup] = useState(null); // 클립보드 파싱 팝업 데이터
+  const [toast,   setToast]   = useState("");
 
+  // Firestore 실시간 구독 - 거래 내역
   useEffect(()=>{
-    const unsub=onSnapshot(query(collection(db,"records")),snap=>{
+    const q = query(collection(db,"records"));
+    const unsub = onSnapshot(q, snap=>{
       setRecords(snap.docs.map(d=>({id:d.id,...d.data()})));
       setLoading(false);
     });
     return unsub;
   },[]);
 
+  // Firestore 실시간 구독 - 카테고리 (단일 문서: settings/categories)
   useEffect(()=>{
-    const ref=doc(db,"settings","categories");
-    const unsub=onSnapshot(ref,snap=>{
-      if(snap.exists()){const d=snap.data();if(Array.isArray(d.expCats)&&d.expCats.length>0)setExpCats(d.expCats);if(Array.isArray(d.incCats)&&d.incCats.length>0)setIncCats(d.incCats);}
-      else{setDoc(ref,{expCats:loadArr("mb7_exp",DEFAULT_EXP),incCats:loadArr("mb7_inc",DEFAULT_INC)});}
+    const ref = doc(db,"settings","categories");
+    const unsub = onSnapshot(ref, snap=>{
+      if(snap.exists()){
+        const d = snap.data();
+        if(Array.isArray(d.expCats) && d.expCats.length>0) setExpCats(d.expCats);
+        if(Array.isArray(d.incCats) && d.incCats.length>0) setIncCats(d.incCats);
+      } else {
+        // 문서 없으면 기본값으로 최초 생성 (localStorage 마이그레이션 포함)
+        const migExp = loadArr("mb7_exp", DEFAULT_EXP);
+        const migInc = loadArr("mb7_inc", DEFAULT_INC);
+        setDoc(ref, { expCats: migExp, incCats: migInc });
+      }
       setCatLoaded(true);
     });
     return unsub;
   },[]);
 
-  useEffect(()=>{if(catLoaded)setDoc(doc(db,"settings","categories"),{expCats,incCats});},[expCats,incCats]);
+  // 카테고리 변경 시 Firestore에 저장 (최초 로드 후에만)
+  useEffect(()=>{ if(catLoaded) setDoc(doc(db,"settings","categories"), { expCats, incCats }); },[expCats, incCats]);
+
+  // 앱 포커스 시 클립보드 자동 감지
+  useEffect(()=>{
+    const checkClipboard = async () => {
+      try {
+        if(!document.hasFocus()) return;
+        const text = await navigator.clipboard.readText();
+        if(!text || text.length < 10) return;
+        const parsed = parseCard(text);
+        if(!parsed.amount) return;
+        // 이미 팝업 떠 있으면 무시
+        setClipPopup(prev => {
+          if(prev?.rawText === text) return prev;
+          return { rawText: text, ...parsed };
+        });
+      } catch(e) { /* 권한 없으면 무시 */ }
+    };
+    // 앱 포커스될 때마다 체크
+    window.addEventListener("focus", checkClipboard);
+    document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") checkClipboard(); });
+    return ()=>{ window.removeEventListener("focus", checkClipboard); };
+  },[]);
 
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(""),2200);};
 
-  // 저장: 동기처럼 동작, 홈으로 이동 먼저
-  const handleSave=data=>{
-    setPage("home");
-    setEditRec(null);
+  const handleSave=async data=>{
     if(editRec){
-      updateDoc(doc(db,"records",editRec.id),data).then(()=>showToast("수정 완료 ✓")).catch(()=>showToast("수정 실패"));
-    }else{
-      addDoc(collection(db,"records"),{...data,createdAt:Date.now()}).then(()=>showToast("저장 완료 ✓")).catch(()=>showToast("저장 실패"));
+      await updateDoc(doc(db,"records",editRec.id), data);
+      showToast("수정 완료 ✓");
+    } else {
+      await addDoc(collection(db,"records"), {...data, createdAt: Date.now()});
+      showToast("저장 완료 ✓");
     }
+    setEditRec(null); setPage("home");
   };
 
-  const handleDel=id=>{
-    deleteDoc(doc(db,"records",id)).then(()=>showToast("삭제됨")).catch(()=>showToast("삭제 실패"));
+  const handleDel=async id=>{
+    if(!confirm("삭제할까요?"))return;
+    await deleteDoc(doc(db,"records",id));
+    showToast("삭제됨");
   };
 
   const startEdit=r=>{setEditRec(r);setIMode(r.mode||"expense");setPage("input");};
 
-  // 정렬
-  const sorted=[...records].sort((a,b)=>{
-    if(b.date!==a.date)return b.date>a.date?1:-1;
-    return(b.createdAt||0)-(a.createdAt||0);
+  const sorted  =[...records].sort((a,b)=>{
+    if(b.date!==a.date) return b.date>a.date?1:-1;
+    return (b.createdAt||0)-(a.createdAt||0); // 같은 날짜면 최신 입력 순
   });
-
-  // 필터
   const filtered=sorted.filter(r=>{
-    const kw=fSearch.trim().toLowerCase();
-    const sm=!kw||(r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
-    const tm=fTarget==="전체"||r.target===fTarget;
-    const tym=fType==="전체"||r.type===fType;
-    const mm2=fMode==="전체"||(fMode==="지출"?r.mode==="expense":r.mode==="income");
-    let dm=true;
-    if(!kw){
-      if(fRange==="month")dm=r.date?.startsWith(fMonth);
-      else if(fRange==="range")dm=r.date>=fFrom+"-01"&&r.date<=fTo+"-31";
+    const kw = fSearch.trim().toLowerCase();
+    if(kw) {
+      // 검색어 있으면 전체 데이터에서 검색 (월 필터 무시)
+      const tm = fTarget==="전체"||r.target===fTarget;
+      const sm = (r.memo||"").toLowerCase().includes(kw)||(r.category||"").toLowerCase().includes(kw)||(r.type||"").toLowerCase().includes(kw);
+      return tm&&sm;
     }
-    return dm&&tm&&tym&&mm2&&sm;
+    // 검색어 없으면 월 필터 적용
+    const mm = r.date?.startsWith(fMonth);
+    const tm = fTarget==="전체"||r.target===fTarget;
+    return mm&&tm;
   });
-
-  const income =filtered.filter(r=>r.mode==="income") .reduce((s,r)=>s+Number(r.amount||0),0);
-  const expense=filtered.filter(r=>r.mode==="expense").reduce((s,r)=>s+Number(r.amount||0),0);
+  const income  =filtered.filter(r=>r.mode==="income") .reduce((s,r)=>s+Number(r.amount||0),0);
+  const expense =filtered.filter(r=>r.mode==="expense").reduce((s,r)=>s+Number(r.amount||0),0);
   const mRecs=sorted.filter(r=>r.date?.startsWith(fMonth));
-  const mExp=mRecs.filter(r=>r.mode==="expense"),mInc=mRecs.filter(r=>r.mode==="income");
-  const mET=mExp.reduce((s,r)=>s+Number(r.amount),0),mIT=mInc.reduce((s,r)=>s+Number(r.amount),0);
+  const mExp=mRecs.filter(r=>r.mode==="expense"), mInc=mRecs.filter(r=>r.mode==="income");
+  const mET=mExp.reduce((s,r)=>s+Number(r.amount),0), mIT=mInc.reduce((s,r)=>s+Number(r.amount),0);
+  const cStat=expCats.map(c=>({l:c,t:mExp.filter(r=>r.category===c).reduce((s,r)=>s+Number(r.amount),0)})).filter(x=>x.t>0).sort((a,b)=>b.t-a.t);
+  const tStat=TARGETS.map(t=>({l:t,t:mExp.filter(r=>r.target===t).reduce((s,r)=>s+Number(r.amount),0)}));
+  const iStat=incCats.map(c=>({l:c,t:mInc.filter(r=>r.category===c).reduce((s,r)=>s+Number(r.amount),0)})).filter(x=>x.t>0);
 
   const tc=r=>{
     if(r.mode==="income")return{bg:"#f0fdf4",c:"#16a34a",b:"#86efac"};
@@ -474,64 +664,44 @@ export default function App(){
     return{bg:"#f1f5f9",c:"#64748b",b:"#cbd5e1"};
   };
 
-  const activeFilters=[fTarget,fType,fMode].filter(v=>v!=="전체").length;
+  /* 설정 페이지 */
+  if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
+  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast}/>;
+  if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
 
-  if(loading||!catLoaded)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
-  if(page==="settings")return<SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast}/>;
-  if(page==="upload")return<UploadPage onImport={rows=>{rows.forEach(r=>{const{id:_,...data}=r;addDoc(collection(db,"records"),data);});}} onBack={()=>setPage("home")} showToast={showToast}/>;
-
-  return<div style={S.root}>
+  return <div style={S.root}>
     <header style={S.header}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>
         <div style={S.logo}>₩</div>
         <span style={{fontSize:18,fontWeight:800,letterSpacing:-0.5,color:"#1e293b"}}>가계부</span>
       </div>
       <div style={{display:"flex",gap:4}}>
-        <button onClick={()=>setPage("upload")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>📂</button>
+        <button onClick={()=>setPage("upload")}   style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>📂</button>
         <button onClick={()=>setPage("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>⚙️</button>
       </div>
     </header>
 
     {/* 홈 */}
     {page==="home"&&<>
-      {/* 기간 탭 */}
-      <div style={{display:"flex",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
-        {[["month","당월"],["range","기간"],["all","전체"]].map(([key,label])=>(
-          <button key={key} onClick={()=>setFRange(key)} style={{flex:1,padding:"10px 4px",background:"none",border:"none",fontSize:13,cursor:"pointer",fontWeight:700,color:fRange===key?"#2563eb":"#94a3b8",borderBottom:fRange===key?"2px solid #2563eb":"2px solid transparent"}}>{label}</button>
-        ))}
+      <div style={S.filterBar}>
+        <input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={S.mInput}/>
+        <select value={fTarget} onChange={e=>setFTarget(e.target.value)} style={S.sel}>{["전체",...TARGETS].map(t=><option key={t}>{t}</option>)}</select>
       </div>
-      {/* 기간 상세 */}
-      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center"}}>
-        {fRange==="month"&&<input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={{...S.mInput,flex:2}}/>}
-        {fRange==="range"&&<><input type="month" value={fFrom} onChange={e=>setFFrom(e.target.value)} style={{...S.mInput,flex:1}}/><span style={{color:"#94a3b8",fontSize:13}}>~</span><input type="month" value={fTo} onChange={e=>setFTo(e.target.value)} style={{...S.mInput,flex:1}}/></>}
-        {fRange==="all"&&<span style={{fontSize:13,color:"#94a3b8",flex:1}}>전체 기간</span>}
-      </div>
-      {/* 검색 + 필터 버튼 */}
-      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9",display:"flex",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"8px 12px",gap:8,flex:1}}>
+      {/* 검색창 */}
+      <div style={{padding:"8px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
+        <div style={{display:"flex",alignItems:"center",background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"8px 12px",gap:8}}>
           <span style={{fontSize:15,color:"#94a3b8"}}>🔍</span>
-          <input type="text" placeholder="메모·카테고리·유형 검색" value={fSearch}
-            onChange={e=>setFSearch(e.target.value)} onInput={e=>setFSearch(e.target.value)}
-            style={{flex:1,border:"none",background:"none",fontSize:14,color:"#1e293b",outline:"none"}}/>
-          {fSearch&&<button onClick={()=>setFSearch("")} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,padding:0}}>✕</button>}
+          <input
+            type="text"
+            placeholder="메모·카테고리·유형 검색"
+            value={fSearch}
+            onChange={e=>setFSearch(e.target.value)}
+            onInput={e=>setFSearch(e.target.value)}
+            style={{flex:1,border:"none",background:"none",fontSize:14,color:"#1e293b",outline:"none"}}
+          />
+          {fSearch&&<button onClick={()=>setFSearch("")} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,padding:0,lineHeight:1}}>✕</button>}
         </div>
-        <button onClick={()=>setShowFilter(f=>!f)} style={{background:activeFilters>0?"#2563eb":"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:10,padding:"0 12px",color:activeFilters>0?"#fff":"#64748b",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-          🎚️{activeFilters>0?` ${activeFilters}`:""}
-        </button>
       </div>
-      {/* 필터 패널 */}
-      {showFilter&&<div style={{background:"#f8fafc",borderBottom:"1px solid #f1f5f9",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-        {[["구분",["전체","지출","수입"],fMode,setFMode,"#2563eb"],["유형",["전체","카드","현금","은행"],fType,setFType,"#7c3aed"],["대상",["전체","개인","가족","기타"],fTarget,setFTarget,"#f59e0b"]].map(([label,opts,val,setter,color])=>(
-          <div key={label} style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:12,color:"#64748b",minWidth:36,fontWeight:600}}>{label}</span>
-            <div style={{display:"flex",gap:6,flex:1}}>
-              {opts.map(v=><button key={v} onClick={()=>setter(v)} style={{flex:1,padding:"6px 4px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",border:val===v?`1.5px solid ${color}`:"1.5px solid #e2e8f0",background:val===v?color+"11":"#fff",color:val===v?color:"#94a3b8"}}>{v}</button>)}
-            </div>
-          </div>
-        ))}
-        <button onClick={()=>{setFTarget("전체");setFType("전체");setFMode("전체");}} style={{background:"none",border:"1px solid #e2e8f0",borderRadius:8,padding:"6px",fontSize:12,color:"#94a3b8",cursor:"pointer"}}>🔄 필터 초기화</button>
-      </div>}
-      {/* 요약 */}
       <div style={S.sumRow}>
         {[["수입",income,"#22c55e","#16a34a"],["지출",expense,"#ef4444","#dc2626"],["잔액",income-expense,"#3b82f6",income-expense>=0?"#2563eb":"#dc2626"]].map(([l,v,bc,tc2])=>(
           <div key={l} style={{...S.sumCard,borderTop:`3px solid ${bc}`}}>
@@ -540,19 +710,16 @@ export default function App(){
           </div>
         ))}
       </div>
-      {/* 목록 */}
       <div style={S.listArea}>
         <div style={{display:"flex",justifyContent:"space-between",padding:"4px 2px",alignItems:"center"}}>
           <span style={{fontSize:12,color:"#94a3b8"}}>
             {filtered.length}건
-            {fSearch&&<span style={{color:"#2563eb",fontWeight:600}}> 전체에서 "{fSearch}" 검색</span>}
-            {!fSearch&&fRange==="range"&&<span style={{color:"#475569"}}> ({fFrom}~{fTo})</span>}
-            {!fSearch&&fRange==="all"&&<span style={{color:"#475569"}}> (전체)</span>}
+            {fSearch && <span style={{color:"#2563eb",fontWeight:600}}> 전체에서 "{fSearch}" 검색</span>}
           </span>
           <span style={{fontSize:13,color:"#dc2626",fontWeight:700}}>지출합계 {fmt(expense)}</span>
         </div>
         {filtered.length===0&&<div style={S.empty}><div style={{fontSize:36,marginBottom:8}}>{fSearch?"🔍":"🗒️"}</div><div>{fSearch?`"${fSearch}" 검색 결과 없음`:"내역이 없어요"}</div></div>}
-        {filtered.map(r=>{const t=tc(r);return(<div key={r.id} style={S.card}>
+        {filtered.map(r=>{const t=tc(r);return (<div key={r.id} style={S.card}>
           <div style={S.cDate}><div style={{fontSize:20,fontWeight:800,lineHeight:1,color:"#1e293b"}}>{fmtD(r.date).split("/")[1]}</div><div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{fmtD(r.date).split("/")[0]}월</div></div>
           <div style={{flex:1,overflow:"hidden"}}>
             <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:5}}>
@@ -562,7 +729,6 @@ export default function App(){
               {r.mode==="expense"&&r.target&&<span style={{...S.badge,background:"#fffbeb",color:"#d97706",border:"1px solid #fcd34d"}}>{r.target}</span>}
             </div>
             <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#475569"}}>{r.memo||"—"}</div>
-            {r.foreignCurrency&&<div style={{fontSize:11,color:"#0369a1",marginTop:3}}>🌏 {r.foreignCurrency} {r.foreignAmount} | 수수료 {Number(r.feeAmount||0).toLocaleString()}원</div>}
           </div>
           <div style={{textAlign:"right",minWidth:90}}>
             <div style={{fontSize:15,fontWeight:800,color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"+":"-"}{fmt(r.amount)}</div>
@@ -579,10 +745,10 @@ export default function App(){
     {page==="input"&&<div>
       <div style={S.modeBar}>
         <button onClick={()=>{setIMode("expense");setEditRec(null);}} style={{...S.modeBtn,...(iMode==="expense"?{color:"#dc2626",borderBottom:"3px solid #ef4444",background:"#fff5f5"}:{})}}>💸 지출</button>
-        <button onClick={()=>{setIMode("income");setEditRec(null);}} style={{...S.modeBtn,...(iMode==="income"?{color:"#16a34a",borderBottom:"3px solid #22c55e",background:"#f0fdf4"}:{})}}>💰 수입</button>
+        <button onClick={()=>{setIMode("income"); setEditRec(null);}} style={{...S.modeBtn,...(iMode==="income" ?{color:"#16a34a",borderBottom:"3px solid #22c55e",background:"#f0fdf4"}:{})}}>💰 수입</button>
       </div>
       {iMode==="expense"&&<ExpPage expCats={expCats} onSave={handleSave} editData={editRec?.mode==="expense"?editRec:null} onCancel={()=>setEditRec(null)} showToast={showToast}/>}
-      {iMode==="income" &&<IncPage incCats={incCats} onSave={handleSave} editData={editRec?.mode==="income"?editRec:null} onCancel={()=>setEditRec(null)} showToast={showToast}/>}
+      {iMode==="income" &&<IncPage incCats={incCats} onSave={handleSave} editData={editRec?.mode==="income" ?editRec:null} onCancel={()=>setEditRec(null)} showToast={showToast}/>}
     </div>}
 
     {/* 통계 */}
@@ -597,6 +763,37 @@ export default function App(){
         </button>
       ))}
     </nav>
+    {/* 클립보드 자동 파싱 팝업 */}
+    {clipPopup&&(
+      <div style={{position:"fixed",bottom:90,left:16,right:16,maxWidth:448,margin:"0 auto",background:"#fff",borderRadius:16,boxShadow:"0 8px 32px #00000022",border:"1.5px solid #93c5fd",zIndex:40,padding:"16px"}}>
+        <div style={{fontSize:13,color:"#2563eb",fontWeight:700,marginBottom:8}}>📋 카드 문자 감지됨 — 파싱할까요?</div>
+        <div style={{fontSize:12,color:"#475569",marginBottom:12,lineHeight:1.6}}>
+          {clipPopup.memo&&<span>사용처: <b>{clipPopup.memo}</b>　</span>}
+          {clipPopup.amount&&<span>금액: <b style={{color:"#dc2626"}}>{Number(clipPopup.amount).toLocaleString("ko-KR")}원</b>　</span>}
+          {clipPopup.date&&<span>날짜: <b>{clipPopup.date}</b></span>}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{
+            setClipPopup(null);
+            setIMode("expense");
+            setPage("input");
+            // ExpPage에 파싱 데이터 전달용 sessionStorage 활용
+            sessionStorage.setItem("clipParsed", JSON.stringify({
+              mode:"expense", date:clipPopup.date||today(),
+              type:"카드", category:expCats[0],
+              target:"개인", amount:clipPopup.amount, memo:clipPopup.memo||""
+            }));
+          }} style={{flex:1,background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            ✅ 파싱하기
+          </button>
+          <button onClick={()=>setClipPopup(null)}
+            style={{flex:1,background:"#f1f5f9",color:"#64748b",border:"none",borderRadius:10,padding:"10px",fontSize:14,fontWeight:600,cursor:"pointer"}}>
+            무시
+          </button>
+        </div>
+      </div>
+    )}
+
     {toast&&<div style={S.toast}>{toast}</div>}
   </div>;
 }
@@ -605,7 +802,9 @@ const S={
   root:    {minHeight:"100vh",background:"#f8fafc",color:"#1e293b",fontFamily:"'Noto Sans KR','Apple SD Gothic Neo',sans-serif",maxWidth:480,margin:"0 auto",paddingBottom:120},
   header:  {display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px 12px",background:"#fff",borderBottom:"1px solid #f1f5f9",position:"sticky",top:0,zIndex:20,boxShadow:"0 1px 4px #0000000a"},
   logo:    {width:32,height:32,background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:"#fff"},
+  filterBar:{display:"flex",gap:8,padding:"10px 14px",background:"#fff",borderBottom:"1px solid #f1f5f9"},
   mInput:  {flex:1,background:"#f8fafc",border:"1.5px solid #e2e8f0",color:"#1e293b",borderRadius:8,padding:"7px 8px",fontSize:13},
+  sel:     {flex:1,background:"#f8fafc",border:"1.5px solid #e2e8f0",color:"#1e293b",borderRadius:8,padding:"7px 4px",fontSize:12},
   sumRow:  {display:"flex",gap:10,padding:"14px 14px 10px"},
   sumCard: {flex:1,background:"#fff",borderRadius:14,padding:"12px 10px",textAlign:"center",boxShadow:"0 1px 4px #0000000d"},
   listArea:{padding:"8px 14px",display:"flex",flexDirection:"column",gap:8},
@@ -620,7 +819,7 @@ const S={
   subBar:  {display:"flex",borderBottom:"1px solid #f1f5f9",padding:"0 16px",gap:4,background:"#fff"},
   subBtn:  {padding:"10px 14px",background:"none",border:"none",color:"#94a3b8",fontSize:13,cursor:"pointer",fontWeight:600,borderBottom:"2px solid transparent"},
   subOn:   {color:"#2563eb",borderBottom:"2px solid #3b82f6"},
-  form:    {padding:"16px 20px",paddingBottom:"100px",display:"flex",flexDirection:"column",gap:14,background:"#f8fafc"},
+  form:    {padding:"16px 20px",display:"flex",flexDirection:"column",gap:14,background:"#f8fafc"},
   ft:      {fontSize:17,fontWeight:800,letterSpacing:-0.5,color:"#1e293b",marginBottom:2},
   inp:     {flex:1,background:"#fff",border:"1.5px solid #e2e8f0",borderRadius:9,color:"#1e293b",padding:"9px 12px",fontSize:14,outline:"none"},
   saveBtn: {background:"#2563eb",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer",width:"100%"},
@@ -634,6 +833,7 @@ const S={
   navBtn:  {flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,padding:"10px 0 12px",background:"none",border:"none",borderTop:"2px solid transparent",color:"#94a3b8",cursor:"pointer"},
   toast:   {position:"fixed",bottom:84,left:"50%",transform:"translateX(-50%)",background:"#1e293b",color:"#fff",padding:"11px 22px",borderRadius:22,fontSize:14,boxShadow:"0 4px 20px #00000033",zIndex:999,whiteSpace:"nowrap",fontWeight:600},
 };
+
 const Sc={
   cbEdit:  {background:"#eff6ff",border:"none",color:"#2563eb",borderRadius:5,padding:"4px 9px",fontSize:11,cursor:"pointer",fontWeight:600},
   cbDel:   {background:"#fef2f2",border:"none",color:"#dc2626",borderRadius:5,padding:"4px 9px",fontSize:11,cursor:"pointer",fontWeight:600},
