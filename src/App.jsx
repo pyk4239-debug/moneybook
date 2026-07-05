@@ -392,8 +392,24 @@ function UploadPage({onImport, onBack, showToast}){
 }
 
 /* ── 설정 화면 ── */
-function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast}){
+function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel}){
   const [editIdx,setEditIdx]=useState(null); // {type,idx}
+
+  // 중복 항목 그룹화 (날짜+구분+유형+카테고리+대상+금액+메모 모두 같은 것)
+  const dupGroups = (()=>{
+    const map={};
+    (records||[]).forEach(r=>{
+      const key=[r.date,r.mode,r.type,r.category,r.target||"",r.amount,r.memo||""].join("|");
+      if(!map[key]) map[key]=[];
+      map[key].push(r);
+    });
+    return Object.values(map).filter(g=>g.length>1).sort((a,b)=>b.length-a.length);
+  })();
+  const delDupGroup=(group,keepOne)=>{
+    const targets = keepOne ? group.slice(1) : group;
+    targets.forEach(r=>handleDel(r.id));
+    showToast(`${targets.length}건 삭제됨`);
+  };
 
   const doEdit=(type,idx,val)=>{
     const v=val.trim(); if(!v)return;
@@ -419,7 +435,21 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast}){
       <button onClick={onBack} style={{background:"#f1f5f9",border:"none",color:"#64748b",borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>← 닫기</button>
     </div>
     <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:10,paddingBottom:60}}>
-      
+      {dupGroups.length>0&&<div style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:12,padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#dc2626"}}>🧹 중복 항목 발견 — {dupGroups.length}건</div>
+        {dupGroups.map((g,i)=>{
+          const r=g[0];
+          return <div key={i} style={{background:"#fff",borderRadius:10,padding:"10px 12px",border:"1px solid #fecaca",display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{fontSize:12,color:"#1e293b"}}>
+              <b>{r.memo||r.category}</b> · {r.date} · {Number(r.amount).toLocaleString()}원 · <span style={{color:"#dc2626",fontWeight:700}}>{g.length}개 중복</span>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>delDupGroup(g,true)} style={{flex:1,background:"#eff6ff",color:"#2563eb",border:"none",borderRadius:8,padding:"7px 0",fontSize:12,fontWeight:700,cursor:"pointer"}}>1개만 남기고 {g.length-1}개 삭제</button>
+              <button onClick={()=>delDupGroup(g,false)} style={{flex:1,background:"#fef2f2",color:"#dc2626",border:"none",borderRadius:8,padding:"7px 0",fontSize:12,fontWeight:700,cursor:"pointer"}}>{g.length}개 전체 삭제</button>
+            </div>
+          </div>;
+        })}
+      </div>}
       <div style={{fontSize:12,color:"#64748b",fontWeight:700,letterSpacing:0.5,marginTop:4}}>💸 지출 카테고리</div>
       {expCats.map((c,i)=>(
         editIdx?.type==="exp"&&editIdx.idx===i
@@ -718,7 +748,7 @@ export default function App(){
 
   /* 설정 페이지 */
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
-  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast}/>;
+  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
 
   return <div style={S.root}>
