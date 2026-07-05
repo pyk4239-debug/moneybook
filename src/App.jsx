@@ -519,11 +519,11 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       {form.foreignCurrency&&<div style={{background:"#e0f2fe",borderRadius:12,padding:"14px 16px",border:"1.5px solid #38bdf8",display:"flex",flexDirection:"column",gap:10}}>
         <div style={{fontSize:13,color:"#0369a1",fontWeight:800}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
         <Row label="승인금액">
-          <input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value)||0;const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff"}}/>
+          <input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value)||0;const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff",minWidth:0}}/>
           <span style={{fontSize:12,color:"#0369a1",marginLeft:4}}>원</span>
         </Row>
         <Row label="수수료">
-          <input type="number" value={form.feeAmount||""} onChange={e=>{const fee=Number(e.target.value)||0;setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});}} style={{...S.inp,background:"#fff"}}/>
+          <input type="number" value={form.feeAmount||""} onChange={e=>{const fee=Number(e.target.value)||0;setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});}} style={{...S.inp,background:"#fff",minWidth:0}}/>
           <span style={{fontSize:12,color:"#0369a1",marginLeft:4}}>원</span>
         </Row>
         <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid #bae6fd",paddingTop:8}}>
@@ -573,8 +573,8 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
         <div style={{fontSize:13,color:"#2563eb",fontWeight:700}}>✅ 파싱 완료 — 카테고리·대상 선택 후 저장</div>
         {form.foreignCurrency&&<div style={{background:"#e0f2fe",borderRadius:10,padding:"12px",border:"1px solid #7dd3fc",fontSize:12}}>
           <div style={{color:"#0369a1",fontWeight:700,marginBottom:8}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
-          <Row label="승인금액"><input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value)||0;const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff"}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
-          <Row label="수수료"><input type="number" value={form.feeAmount||""} onChange={e=>{const fee=Number(e.target.value)||0;setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});}} style={{...S.inp,background:"#fff"}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
+          <Row label="승인금액"><input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value)||0;const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff",minWidth:0}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
+          <Row label="수수료"><input type="number" value={form.feeAmount||""} onChange={e=>{const fee=Number(e.target.value)||0;setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});}} style={{...S.inp,background:"#fff",minWidth:0}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
           <div style={{marginTop:8,display:"flex",justifyContent:"space-between",borderTop:"1px solid #bae6fd",paddingTop:8}}>
             <span style={{fontWeight:700,color:"#0369a1"}}>합계(청구금액)</span>
             <span style={{fontWeight:800,color:"#dc2626"}}>{Number(form.amount||0).toLocaleString()}원</span>
