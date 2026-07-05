@@ -468,7 +468,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);setTab("manual");prev.current=editData;}},[editData]);
   const blue={bg:"#eff6ff",b:"#3b82f6",c:"#2563eb"}, yel={bg:"#fffbeb",b:"#f59e0b",c:"#d97706"};
-  const doSave=()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");onSave({...form,amount:Number(form.amount)});setForm(blankE(expCats[0]));setPaste("");setParsed(null);setPs("idle");};
+  const doSave=async()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");await onSave({...form,amount:Number(form.amount)});setForm(blankE(expCats[0]));setPaste("");setParsed(null);setPs("idle");};
   const doParse=async()=>{
     setPs("loading");
     const r = await parseCard(paste);
@@ -605,7 +605,7 @@ function IncPage({incCats,onSave,editData,onCancel,showToast}){
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);prev.current=editData;}},[editData]);
   const grn={bg:"#f0fdf4",b:"#22c55e",c:"#16a34a"};
-  const doSave=()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");onSave({...form,amount:Number(form.amount)});setForm(blankI(incCats[0]));};
+  const doSave=async()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");await onSave({...form,amount:Number(form.amount)});setForm(blankI(incCats[0]));};
   return <div style={S.form}>
     <div style={S.ft}>{editData?"✏️ 수입 수정":"💰 수입 입력"}</div>
     <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
@@ -679,7 +679,7 @@ export default function App(){
         if(!document.hasFocus()) return;
         const text = await navigator.clipboard.readText();
         if(!text || text.length < 10) return;
-        const parsed = parseCard(text);
+        const parsed = await parseCard(text);
         if(!parsed.amount) return;
         // 이미 팝업 떠 있으면 무시
         setClipPopup(prev => {
