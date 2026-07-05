@@ -337,7 +337,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       <div style={S.exBox}><div style={S.exL}>하나카드 형식 예시</div><pre style={S.exP}>{"금액 19,000원\n카드 하나2*0*\n사용처 NHN링크\n거래시간 04/24 11:19"}</pre></div>
       <button onClick={doClipboard} style={{...S.saveBtn,background:"#7c3aed"}}>📋 클립보드에서 자동 붙여넣기</button>
       <textarea value={paste} onChange={e=>{setPaste(e.target.value);setParsed(null);}} placeholder="또는 여기에 직접 붙여넣기..." style={S.ta}/>
-      <button onClick={doParse} disabled={ps==="loading"} style={{...S.saveBtn,background:ps==="done"?"#16a34a":ps==="loading"?"#94a3b8":"#0f766e"}}>
+      <button onClick={doParse} style={{...S.saveBtn,background:ps==="done"?"#16a34a":ps==="loading"?"#94a3b8":"#0f766e"}}>
         {ps==="loading"?"⏳ 분석 중...":ps==="done"?"✅ 파싱 완료!":"🔍 파싱하기"}
       </button>
       {parsed&&<div style={S.preview}>
@@ -354,8 +354,8 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
         <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
         <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
-        <button onClick={doSave} style={S.saveBtn}>저장</button>
       </div>}
+      {parsed&&<button onClick={doSave} style={S.saveBtn}>저장</button>}
     </div>}
   </div>;
 }
