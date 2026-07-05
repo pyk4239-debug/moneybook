@@ -468,19 +468,13 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);setTab("manual");prev.current=editData;}},[editData]);
   const blue={bg:"#eff6ff",b:"#3b82f6",c:"#2563eb"}, yel={bg:"#fffbeb",b:"#f59e0b",c:"#d97706"};
-  const [saving, setSaving] = useState(false);
   const doSave=async()=>{
     if(!form.amount||isNaN(form.amount)) return showToast("금액을 입력하세요");
-    if(saving) return;
-    setSaving(true);
     try {
       await onSave({...form, amount:Number(form.amount)});
       setForm(blankE(expCats[0])); setPaste(""); setParsed(null); setPs("idle");
     } catch(e) {
       showToast("저장 실패 — 다시 시도해주세요");
-      console.error(e);
-    } finally {
-      setSaving(false);
     }
   };
   const doParse=async()=>{
@@ -542,7 +536,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       {!form.foreignCurrency&&<Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
 
       <Row label="메모"><input type="text" placeholder="사용처·메모" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
-      <button onClick={doSave} style={{...S.saveBtn,background:saving?"#94a3b8":undefined}}>{saving?"저장 중...":editData?"수정 저장":"저장"}</button>
+      <button onClick={doSave} style={S.saveBtn}>{editData?"수정 저장":"저장"}</button>
       {editData&&<button onClick={onCancel} style={S.cancelBtn}>취소</button>}
     </div>}
     {tab==="paste"&&<div style={S.form}>
@@ -607,7 +601,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
         <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
         <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
-        <button onClick={doSave} style={{...S.saveBtn,background:saving?"#94a3b8":undefined}}>{saving?"저장 중...":"저장"}</button>
+        <button onClick={doSave} style={S.saveBtn}>저장</button>
       </div>}
     </div>}
   </div>;
@@ -619,18 +613,13 @@ function IncPage({incCats,onSave,editData,onCancel,showToast}){
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);prev.current=editData;}},[editData]);
   const grn={bg:"#f0fdf4",b:"#22c55e",c:"#16a34a"};
-  const [saving,setSaving]=useState(false);
   const doSave=async()=>{
     if(!form.amount||isNaN(form.amount)) return showToast("금액을 입력하세요");
-    if(saving) return;
-    setSaving(true);
     try {
       await onSave({...form,amount:Number(form.amount)});
       setForm(blankI(incCats[0]));
     } catch(e) {
       showToast("저장 실패 — 다시 시도해주세요");
-    } finally {
-      setSaving(false);
     }
   };
   return <div style={S.form}>
@@ -640,7 +629,7 @@ function IncPage({incCats,onSave,editData,onCancel,showToast}){
     <Row label="카테고리"><Seg items={incCats} value={form.category} onChange={v=>setForm({...form,category:v})} ac={grn}/></Row>
     <Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>
     <Row label="메모"><input type="text" placeholder="출처·메모" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
-    <button onClick={doSave} style={{...S.saveBtn,background:saving?"#94a3b8":"#16a34a"}}>{saving?"저장 중...":editData?"수정 저장":"저장"}</button>
+    <button onClick={doSave} style={{...S.saveBtn,background:"#16a34a"}}>{editData?"수정 저장":"저장"}</button>
     {editData&&<button onClick={onCancel} style={S.cancelBtn}>취소</button>}
   </div>;
 }
