@@ -60,6 +60,7 @@ async function parseCard(txt) {
       r.wonBase = wonBase;
       r.feeAmount = fee;
       r.amount = wonBase + fee;
+      r.rate = rate;
       r.rateInfo = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} = ${wonBase.toLocaleString()}원 + 수수료 ${fee.toLocaleString()}원`;
     } else {
       r.rateError = true;
@@ -502,7 +503,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
     setParsed(r);
     setForm(f=>{
       const next={...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||""};
-      if(r.foreignCurrency){ next.foreignAmount=r.foreignAmount; next.foreignCurrency=r.foreignCurrency; next.wonBase=r.wonBase; next.feeAmount=r.feeAmount; }
+      if(r.foreignCurrency){ next.foreignAmount=r.foreignAmount; next.foreignCurrency=r.foreignCurrency; next.wonBase=r.wonBase; next.feeAmount=r.feeAmount; next.rate=r.rate; }
       return next;
     });
     setPs("done");
@@ -517,7 +518,16 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
     {tab==="manual"&&<div style={S.form}>
       <div style={S.ft}>{editData?"✏️ 지출 수정":"💸 지출 입력"}</div>
       {form.foreignCurrency&&<div style={{background:"#e0f2fe",borderRadius:12,padding:"14px 16px",border:"1.5px solid #38bdf8",display:"flex",flexDirection:"column",gap:10}}>
-        <div style={{fontSize:13,color:"#0369a1",fontWeight:800}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
+        <div style={{fontSize:13,color:"#0369a1",fontWeight:800}}>🌏 해외 결제</div>
+        <Row label="외화금액">
+          <input type="number" value={form.foreignAmount||""} onChange={e=>{
+            const fa=Number(e.target.value)||0;
+            if(form.rate){ const wb=Math.round(fa*form.rate); const fee=Math.round(wb*FX_FEE); setForm({...form,foreignAmount:fa,wonBase:wb,feeAmount:fee,amount:wb+fee}); }
+            else setForm({...form,foreignAmount:fa});
+          }} style={{...S.inp,background:"#fff",minWidth:0}}/>
+          <span style={{fontSize:12,color:"#0369a1",marginLeft:4,whiteSpace:"nowrap"}}>{form.foreignCurrency}</span>
+        </Row>
+        {form.rate&&<div style={{fontSize:11,color:"#64748b"}}>적용 환율 1{form.foreignCurrency}≈{Math.round(form.rate).toLocaleString()}원 (외화금액 고치면 자동 재계산)</div>}
         <Row label="승인금액">
           <input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value)||0;const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff",minWidth:0}}/>
           <span style={{fontSize:12,color:"#0369a1",marginLeft:4}}>원</span>
@@ -555,7 +565,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
             setParsed(r);
             setForm(f=>{
               const next={...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""};
-              if(r.foreignCurrency){ next.foreignAmount=r.foreignAmount; next.foreignCurrency=r.foreignCurrency; next.wonBase=r.wonBase; next.feeAmount=r.feeAmount; }
+              if(r.foreignCurrency){ next.foreignAmount=r.foreignAmount; next.foreignCurrency=r.foreignCurrency; next.wonBase=r.wonBase; next.feeAmount=r.feeAmount; next.rate=r.rate; }
               return next;
             });
             if(r.rateInfo) showToast(`환율 적용: ${r.rateInfo}`); else showToast("자동 파싱 완료 ✓");
@@ -572,7 +582,16 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       {parsed&&<div style={S.preview}>
         <div style={{fontSize:13,color:"#2563eb",fontWeight:700}}>✅ 파싱 완료 — 카테고리·대상 선택 후 저장</div>
         {form.foreignCurrency&&<div style={{background:"#e0f2fe",borderRadius:10,padding:"12px",border:"1px solid #7dd3fc",fontSize:12}}>
-          <div style={{color:"#0369a1",fontWeight:700,marginBottom:8}}>🌏 해외 결제 — {form.foreignCurrency} {form.foreignAmount}</div>
+          <div style={{color:"#0369a1",fontWeight:700,marginBottom:8}}>🌏 해외 결제</div>
+          <Row label="외화금액">
+            <input type="number" value={form.foreignAmount||""} onChange={e=>{
+              const fa=Number(e.target.value)||0;
+              if(form.rate){ const wb=Math.round(fa*form.rate); const fee=Math.round(wb*FX_FEE); setForm({...form,foreignAmount:fa,wonBase:wb,feeAmount:fee,amount:wb+fee}); }
+              else setForm({...form,foreignAmount:fa});
+            }} style={{...S.inp,background:"#fff",minWidth:0}}/>
+            <span style={{marginLeft:4,color:"#0369a1",whiteSpace:"nowrap"}}>{form.foreignCurrency}</span>
+          </Row>
+          {form.rate&&<div style={{fontSize:11,color:"#64748b",marginBottom:4}}>적용 환율 1{form.foreignCurrency}≈{Math.round(form.rate).toLocaleString()}원 (외화금액 고치면 자동 재계산)</div>}
           <Row label="승인금액"><input type="number" value={form.wonBase||""} onChange={e=>{const wb=Number(e.target.value)||0;const fee=Math.round(wb*FX_FEE);setForm({...form,wonBase:wb,feeAmount:fee,amount:wb+fee});}} style={{...S.inp,background:"#fff",minWidth:0}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
           <Row label="수수료"><input type="number" value={form.feeAmount||""} onChange={e=>{const fee=Number(e.target.value)||0;setForm({...form,feeAmount:fee,amount:(form.wonBase||0)+fee});}} style={{...S.inp,background:"#fff",minWidth:0}}/><span style={{marginLeft:4,color:"#0369a1"}}>원</span></Row>
           <div style={{marginTop:8,display:"flex",justifyContent:"space-between",borderTop:"1px solid #bae6fd",paddingTop:8}}>
