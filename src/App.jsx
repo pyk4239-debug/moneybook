@@ -19,6 +19,9 @@ const TARGETS     = ["개인","가족","기타"];
 const EXP_TYPES   = ["카드","현금","은행"];
 const INC_TYPES   = ["은행입금","현금수입"];
 const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
+// 카드사/국제브랜드가 매매기준율에 얹는 자체 마진 - 실제 명세서와 비교해서 파악된 값
+// CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
+const FX_MARGIN = { CAD: 1.022 };
 
 const fmt   = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
 const fmtM  = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원"; };
@@ -53,15 +56,17 @@ async function parseCard(txt) {
     const foreign = parseFloat(fxMatch[2].replace(/,/g,""));
     r.foreignAmount = foreign;
     r.foreignCurrency = currency;
-    const rate = await fetchRate(currency);
-    if(rate) {
+    const marketRate = await fetchRate(currency);
+    if(marketRate) {
+      const margin = FX_MARGIN[currency] || 1;
+      const rate = marketRate * margin; // 카드사 실적용 예상 환율(마진 반영)
       const wonBase = Math.round(foreign * rate);
       const fee = Math.round(wonBase * FX_FEE);
       r.wonBase = wonBase;
       r.feeAmount = fee;
       r.amount = wonBase + fee;
       r.rate = rate;
-      r.rateInfo = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()} = ${wonBase.toLocaleString()}원 + 수수료 ${fee.toLocaleString()}원`;
+      r.rateInfo = `${currency} ${foreign} × ${Math.round(rate).toLocaleString()}${margin>1?"(마진반영)":""} = ${wonBase.toLocaleString()}원 + 수수료 ${fee.toLocaleString()}원`;
     } else {
       r.rateError = true;
     }
