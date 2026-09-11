@@ -25,6 +25,14 @@ const FX_MARGIN = { CAD: 1.022 };
 
 const APP_VERSION = "v1.4.0 (2026-09-11)";
 
+// 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
+function buildPayDate(monthStr, day){
+  if(!monthStr) return "";
+  const [y,m] = monthStr.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const d = Math.min(Number(day)||25, lastDay);
+  return `${monthStr}-${String(d).padStart(2,"0")}`;
+}
 // 카드 결제일 자동 계산: 구매일 + 익월/익익월 + 결제일(매달 며칠) → 실제 결제일
 function computePayDate(purchaseDateStr, nextMonth, payDay){
   if(!purchaseDateStr) return "";
@@ -682,7 +690,8 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast,cardPayDay}){
             {nextMonth?"익월 결제 (체크 해제 시 익익월)":"익익월 결제로 계산됨"}
           </label>
         </Row>
-        <Row label="결제일"><input type="date" placeholder="비우면 구매일 기준" value={form.payDate||""} onChange={e=>setForm({...form,payDate:e.target.value})} style={S.inp}/></Row>
+        <Row label="결제월"><input type="month" value={form.payDate?form.payDate.slice(0,7):""} onChange={e=>setForm({...form,payDate:buildPayDate(e.target.value, form.payDate?Number(form.payDate.slice(8,10)):cardPayDay)})} style={S.inp}/></Row>
+        <Row label="일(선택)"><input type="number" min="1" max="31" placeholder={String(cardPayDay)} value={form.payDate?Number(form.payDate.slice(8,10)):""} onChange={e=>setForm({...form,payDate:buildPayDate(form.payDate?form.payDate.slice(0,7):computePayDate(form.date,nextMonth,cardPayDay).slice(0,7), e.target.value)})} style={{...S.inp,minWidth:0}}/></Row>
       </>}
       <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
       <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
@@ -747,7 +756,8 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast,cardPayDay}){
             {nextMonth?"익월 결제 (체크 해제 시 익익월)":"익익월 결제로 계산됨"}
           </label>
         </Row>
-        <Row label="결제일"><input type="date" placeholder="비우면 구매일 기준" value={form.payDate||""} onChange={e=>setForm({...form,payDate:e.target.value})} style={S.inp}/></Row>
+        <Row label="결제월"><input type="month" value={form.payDate?form.payDate.slice(0,7):""} onChange={e=>setForm({...form,payDate:buildPayDate(e.target.value, form.payDate?Number(form.payDate.slice(8,10)):cardPayDay)})} style={S.inp}/></Row>
+        <Row label="일(선택)"><input type="number" min="1" max="31" placeholder={String(cardPayDay)} value={form.payDate?Number(form.payDate.slice(8,10)):""} onChange={e=>setForm({...form,payDate:buildPayDate(form.payDate?form.payDate.slice(0,7):computePayDate(form.date,nextMonth,cardPayDay).slice(0,7), e.target.value)})} style={{...S.inp,minWidth:0}}/></Row>
         {!form.foreignCurrency&&<Row label="금액"><input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
         <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
