@@ -23,6 +23,20 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
+const APP_VERSION = "v1.4.0 (2026-09-11)";
+
+// 카드 결제일 자동 계산: 구매일 + 익월/익익월 + 결제일(매달 며칠) → 실제 결제일
+function computePayDate(purchaseDateStr, nextMonth, payDay){
+  if(!purchaseDateStr) return "";
+  const d = new Date(purchaseDateStr+"T00:00:00");
+  let m = d.getMonth() + (nextMonth?1:2);
+  let y = d.getFullYear();
+  while(m>11){ m-=12; y+=1; }
+  const lastDay = new Date(y, m+1, 0).getDate(); // 그 달의 마지막 날 (2월 등 짧은 달 보정)
+  const day = Math.min(Number(payDay)||25, lastDay);
+  return `${y}-${String(m+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+}
+
 const fmt   = n => n==null?"":Number(n).toLocaleString("ko-KR")+"원";
 const fmtM  = n => { if(n==null)return""; const a=Math.abs(n),s=n<0?"-":""; return a>=10000?s+Math.round(a/10000)+"만원":s+a.toLocaleString("ko-KR")+"원"; };
 const fmtD  = d => { if(!d)return""; const[,m,v]=d.split("-"); return`${m}/${v}`; };
@@ -500,8 +514,9 @@ function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartB
   </div>;
 }
 
-function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel}){
+function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel,cardPayDay,setCardPayDay}){
   const [editIdx,setEditIdx]=useState(null); // {type,idx}
+  const [payDayInput,setPayDayInput]=useState(cardPayDay);
 
   // 중복 항목 그룹화 (날짜+구분+유형+카테고리+대상+금액+메모 모두 같은 것)
   const dupGroups = (()=>{
@@ -558,6 +573,13 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
           </div>;
         })}
       </div>}
+      <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:13,color:"#1e293b",fontWeight:700,flex:1}}>💳 카드 결제일(매달 며칠)</span>
+        <input type="number" min="1" max="31" value={payDayInput} onChange={e=>setPayDayInput(e.target.value)}
+          onBlur={()=>{ if(payDayInput&&!isNaN(payDayInput)) setCardPayDay(payDayInput); }}
+          style={{width:60,padding:"6px 8px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,textAlign:"center"}}/>
+        <span style={{fontSize:13,color:"#64748b"}}>일</span>
+      </div>
       <div style={{fontSize:12,color:"#64748b",fontWeight:700,letterSpacing:0.5,marginTop:4}}>💸 지출 카테고리</div>
       {expCats.map((c,i)=>(
         editIdx?.type==="exp"&&editIdx.idx===i
@@ -580,12 +602,13 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
           🔄 기본값으로 초기화
         </button>
       </div>
+      <div style={{textAlign:"center",color:"#cbd5e1",fontSize:11,marginTop:20}}>가계부 {APP_VERSION}</div>
     </div>
   </div>;
 }
 
 /* ── 지출 화면 ── */
-function ExpPage({expCats,onSave,editData,onCancel,showToast}){
+function ExpPage({expCats,onSave,editData,onCancel,showToast,cardPayDay}){
   const [tab,setTab]=useState(()=>{
     const clip=sessionStorage.getItem("clipParsed");
     return clip?"manual":"manual";
@@ -598,8 +621,10 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
   const [parsed,setParsed]=useState(()=>!!sessionStorage.getItem("clipParsed"));
   const [paste,setPaste]=useState("");
   const [ps,setPs]=useState("idle");
+  const [nextMonth,setNextMonth]=useState(true); // 익월결제 체크박스(기본 체크) - 결제일 자동계산용
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);setTab("manual");prev.current=editData;}},[editData]);
+  const applyPayDate=(nm,dt)=>{ setNextMonth(nm); setForm(f=>({...f,date:dt,payDate:computePayDate(dt,nm,cardPayDay)})); };
   const blue={bg:"#eff6ff",b:"#3b82f6",c:"#2563eb"}, yel={bg:"#fffbeb",b:"#f59e0b",c:"#d97706"};
   const doSave=()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");onSave({...form,amount:Number(form.amount)});setForm(blankE(expCats[0]));setPaste("");setParsed(null);setPs("idle");};
   const doParse=async()=>{
@@ -609,7 +634,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
     if(!r.amount){ setPs("idle"); return showToast("파싱 실패 — 형식을 확인하세요"); }
     setParsed(r);
     setForm(f=>{
-      const next={...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||""};
+      const next={...f, date:r.date||f.date, type:"카드", amount:r.amount, memo:r.memo||"", payDate:computePayDate(r.date||f.date,nextMonth,cardPayDay)};
       if(r.foreignCurrency){ next.foreignAmount=r.foreignAmount; next.foreignCurrency=r.foreignCurrency; next.wonBase=r.wonBase; next.feeAmount=r.feeAmount; next.rate=r.rate; }
       return next;
     });
@@ -648,9 +673,17 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
           <span style={{fontSize:16,fontWeight:800,color:"#dc2626"}}>{Number(form.amount||0).toLocaleString()}원</span>
         </div>
       </div>}
-      <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
-      <Row label="유형"><Seg items={EXP_TYPES} value={form.type} onChange={v=>setForm({...form,type:v})} ac={blue}/></Row>
-      {form.type==="카드"&&<Row label="결제일"><input type="date" placeholder="비우면 구매일 기준" value={form.payDate||""} onChange={e=>setForm({...form,payDate:e.target.value})} style={S.inp}/></Row>}
+      <Row label="날짜"><input type="date" value={form.date} onChange={e=>{const dt=e.target.value; if(form.type==="카드") applyPayDate(nextMonth,dt); else setForm({...form,date:dt});}} style={S.inp}/></Row>
+      <Row label="유형"><Seg items={EXP_TYPES} value={form.type} onChange={v=>{ if(v==="카드"&&!form.payDate) setForm(f=>({...f,type:v,payDate:computePayDate(f.date,nextMonth,cardPayDay)})); else setForm({...form,type:v}); }} ac={blue}/></Row>
+      {form.type==="카드"&&<>
+        <Row label="익월결제">
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,color:"#475569"}}>
+            <input type="checkbox" checked={nextMonth} onChange={e=>applyPayDate(e.target.checked,form.date)} style={{width:18,height:18}}/>
+            {nextMonth?"익월 결제 (체크 해제 시 익익월)":"익익월 결제로 계산됨"}
+          </label>
+        </Row>
+        <Row label="결제일"><input type="date" placeholder="비우면 구매일 기준" value={form.payDate||""} onChange={e=>setForm({...form,payDate:e.target.value})} style={S.inp}/></Row>
+      </>}
       <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
       <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
       {!form.foreignCurrency&&<Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
@@ -672,7 +705,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
           if(r.amount){
             setParsed(r);
             setForm(f=>{
-              const next={...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||""};
+              const next={...f,date:r.date||f.date,type:"카드",amount:r.amount,memo:r.memo||"",payDate:computePayDate(r.date||f.date,nextMonth,cardPayDay)};
               if(r.foreignCurrency){ next.foreignAmount=r.foreignAmount; next.foreignCurrency=r.foreignCurrency; next.wonBase=r.wonBase; next.feeAmount=r.feeAmount; next.rate=r.rate; }
               return next;
             });
@@ -707,7 +740,13 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
             <span style={{fontWeight:800,color:"#dc2626"}}>{Number(form.amount||0).toLocaleString()}원</span>
           </div>
         </div>}
-        <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
+        <Row label="날짜"><input type="date" value={form.date} onChange={e=>applyPayDate(nextMonth,e.target.value)} style={S.inp}/></Row>
+        <Row label="익월결제">
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,color:"#475569"}}>
+            <input type="checkbox" checked={nextMonth} onChange={e=>applyPayDate(e.target.checked,form.date)} style={{width:18,height:18}}/>
+            {nextMonth?"익월 결제 (체크 해제 시 익익월)":"익익월 결제로 계산됨"}
+          </label>
+        </Row>
         <Row label="결제일"><input type="date" placeholder="비우면 구매일 기준" value={form.payDate||""} onChange={e=>setForm({...form,payDate:e.target.value})} style={S.inp}/></Row>
         {!form.foreignCurrency&&<Row label="금액"><input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
@@ -792,6 +831,17 @@ export default function App(){
   const setStartBalance=(amount,date)=>{
     setDoc(doc(db,"settings","balanceStart"), {amount:Number(amount), date});
   };
+
+  // Firestore 실시간 구독 - 카드 결제일(매달 며칠) 설정
+  const [cardPayDay, setCardPayDayState] = useState(25);
+  useEffect(()=>{
+    const ref = doc(db,"settings","cardConfig");
+    const unsub = onSnapshot(ref, snap=>{
+      if(snap.exists() && snap.data().payDay) setCardPayDayState(snap.data().payDay);
+    });
+    return unsub;
+  },[]);
+  const setCardPayDay=day=>setDoc(doc(db,"settings","cardConfig"), {payDay:Number(day)});
 
   // Firestore 실시간 구독 - 카테고리 (단일 문서: settings/categories)
   useEffect(()=>{
@@ -907,7 +957,7 @@ export default function App(){
 
   /* 설정 페이지 */
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
-  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel}/>;
+  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
   if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance}/>;
 
@@ -1016,7 +1066,7 @@ export default function App(){
         <button onClick={()=>{setIMode("expense");setEditRec(null);}} style={{...S.modeBtn,...(iMode==="expense"?{color:"#dc2626",borderBottom:"3px solid #ef4444",background:"#fff5f5"}:{})}}>💸 지출</button>
         <button onClick={()=>{setIMode("income"); setEditRec(null);}} style={{...S.modeBtn,...(iMode==="income" ?{color:"#16a34a",borderBottom:"3px solid #22c55e",background:"#f0fdf4"}:{})}}>💰 수입</button>
       </div>
-      {iMode==="expense"&&<ExpPage expCats={expCats} onSave={handleSave} editData={editRec?.mode==="expense"?editRec:null} onCancel={()=>setEditRec(null)} showToast={showToast}/>}
+      {iMode==="expense"&&<ExpPage expCats={expCats} onSave={handleSave} editData={editRec?.mode==="expense"?editRec:null} onCancel={()=>setEditRec(null)} showToast={showToast} cardPayDay={cardPayDay}/>}
       {iMode==="income" &&<IncPage incCats={incCats} onSave={handleSave} editData={editRec?.mode==="income" ?editRec:null} onCancel={()=>setEditRec(null)} showToast={showToast}/>}
     </div>}
 
