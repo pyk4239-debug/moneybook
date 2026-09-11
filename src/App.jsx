@@ -398,6 +398,108 @@ function UploadPage({onImport, onBack, showToast}){
 }
 
 /* ── 설정 화면 ── */
+function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartBalance}){
+  const today=()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`;};
+  const [date,setDate]   = useState(today());
+  const [label,setLabel] = useState("");
+  const [amount,setAmount] = useState("");
+  const [editStart,setEditStart] = useState(false);
+  const [stAmount,setStAmount] = useState("");
+  const [stDate,setStDate] = useState(today());
+
+  const sorted=[...balances].sort((a,b)=> b.date!==a.date ? (b.date>a.date?1:-1) : (b.createdAt||0)-(a.createdAt||0));
+  const latest=sorted[0];
+
+  // 자동계산 잔액: 시작잔고 + (시작일 이후 거래 전부 합산). 카드는 결제일(없으면 구매일) 기준
+  const effDate = r => (r.type==="카드" && r.payDate) ? r.payDate : r.date;
+  const autoBalance = (()=>{
+    if(!startBalance) return null;
+    let bal = Number(startBalance.amount)||0;
+    (records||[]).forEach(r=>{
+      const d = effDate(r);
+      if(!d || d < startBalance.date) return;
+      bal += (r.mode==="income" ? Number(r.amount||0) : -Number(r.amount||0));
+    });
+    return bal;
+  })();
+  const diff = (autoBalance!=null && latest) ? autoBalance - Number(latest.amount) : null;
+
+  const submit=()=>{
+    if(!amount||isNaN(amount)) return alert("금액을 입력하세요");
+    onAdd({date, label:label||"주거래", amount:Number(amount)});
+    setAmount(""); setLabel("");
+  };
+  const submitStart=()=>{
+    if(!stAmount||isNaN(stAmount)) return alert("금액을 입력하세요");
+    setStartBalance(stAmount, stDate);
+    setEditStart(false);
+  };
+
+  return <div style={{minHeight:"100vh",background:"#f8fafc"}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 20px",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
+      <span style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>🏦 잔고</span>
+      <button onClick={onBack} style={{background:"#f1f5f9",border:"none",color:"#64748b",borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>← 닫기</button>
+    </div>
+
+    {/* 시작 잔고 설정 */}
+    {(!startBalance||editStart)&&<div style={{margin:"16px 20px",background:"#fff",borderRadius:14,padding:"16px",border:"1.5px solid #93c5fd",display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{fontSize:13,fontWeight:800,color:"#2563eb"}}>📌 시작 잔고 설정 {startBalance?"(변경)":"— 자동계산의 기준점이에요"}</div>
+      <div style={{fontSize:12,color:"#64748b"}}>이 날짜의 실제 은행 잔고를 입력하면, 그 이후 거래를 자동으로 더하고 빼서 현재 잔액을 계산해요.</div>
+      <input type="date" value={stDate} onChange={e=>setStDate(e.target.value)} style={{padding:"10px 12px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14}}/>
+      <input type="number" placeholder="그 날짜 기준 실제 잔고 (원)" value={stAmount} onChange={e=>setStAmount(e.target.value)} style={{padding:"10px 12px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14}}/>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={submitStart} style={{flex:1,background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontSize:14,fontWeight:700,cursor:"pointer"}}>설정</button>
+        {startBalance&&<button onClick={()=>setEditStart(false)} style={{background:"#f1f5f9",color:"#64748b",border:"none",borderRadius:10,padding:"10px 16px",fontSize:14,cursor:"pointer"}}>취소</button>}
+      </div>
+    </div>}
+
+    {/* 자동계산 잔액 */}
+    {startBalance&&!editStart&&<div style={{margin:"16px 20px",background:"#2563eb",borderRadius:14,padding:"18px 20px",color:"#fff"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div style={{fontSize:12,opacity:0.85}}>자동계산 잔액 (거래내역 기준)</div>
+        <button onClick={()=>{setStAmount(String(startBalance.amount));setStDate(startBalance.date);setEditStart(true);}} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>시작잔고 변경</button>
+      </div>
+      <div style={{fontSize:28,fontWeight:800,marginTop:4}}>{Number(autoBalance).toLocaleString()}원</div>
+      <div style={{fontSize:11,opacity:0.75,marginTop:4}}>시작 {startBalance.date} · {Number(startBalance.amount).toLocaleString()}원 기준</div>
+    </div>}
+
+    {/* 실제(수동) 확인 잔고 + 차액 */}
+    {latest&&<div style={{margin:"0 20px 16px",background:"#fff",borderRadius:14,padding:"16px 20px",border:"1px solid #e2e8f0"}}>
+      <div style={{fontSize:12,color:"#64748b"}}>{latest.label} · {latest.date} 실제 확인 잔고</div>
+      <div style={{fontSize:22,fontWeight:800,color:"#1e293b",marginTop:2}}>{Number(latest.amount).toLocaleString()}원</div>
+      {diff!=null&&<div style={{marginTop:8,fontSize:13,fontWeight:700,color:diff===0?"#16a34a":"#dc2626"}}>
+        {diff===0?"✅ 자동계산과 일치":`⚠️ 차액 ${diff>0?"+":""}${diff.toLocaleString()}원 (${diff>0?"자동계산이 더 큼 — 빠뜨린 지출이 있을 수 있어요":"자동계산이 더 작음 — 빠뜨린 수입이 있을 수 있어요"})`}
+      </div>}
+    </div>}
+
+    <div style={{margin:"0 20px 16px",background:"#fff",borderRadius:14,padding:"16px",border:"1px solid #e2e8f0",display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>실제 잔고 확인 기록 추가</div>
+      <div style={{fontSize:11,color:"#94a3b8",marginTop:-6}}>은행 앱에서 실제 잔고 확인 후 입력 → 위 자동계산이랑 맞는지 대조</div>
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{padding:"10px 12px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14}}/>
+      <input type="text" placeholder="계좌명 (예: 주거래, 사업자통장) — 생략가능" value={label} onChange={e=>setLabel(e.target.value)} style={{padding:"10px 12px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14}}/>
+      <input type="number" placeholder="실제 잔고 (원)" value={amount} onChange={e=>setAmount(e.target.value)} style={{padding:"10px 12px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14}}/>
+      <button onClick={submit} style={{background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"12px 0",fontSize:15,fontWeight:700,cursor:"pointer"}}>기록 추가</button>
+    </div>
+
+    <div style={{margin:"0 20px",display:"flex",flexDirection:"column",gap:8,paddingBottom:40}}>
+      <div style={{fontSize:12,color:"#64748b",fontWeight:700}}>확인 기록 히스토리 ({sorted.length}건)</div>
+      {sorted.map(b=>(
+        <div key={b.id} style={{background:"#fff",borderRadius:10,padding:"10px 14px",border:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>{b.label}</div>
+            <div style={{fontSize:11,color:"#94a3b8"}}>{b.date}</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:14,fontWeight:800,color:"#1e293b"}}>{Number(b.amount).toLocaleString()}원</span>
+            <button onClick={()=>onDel(b.id)} style={{background:"#fef2f2",color:"#dc2626",border:"none",borderRadius:8,padding:"6px 10px",fontSize:12,cursor:"pointer",fontWeight:600}}>삭제</button>
+          </div>
+        </div>
+      ))}
+      {sorted.length===0&&<div style={{textAlign:"center",color:"#94a3b8",fontSize:13,padding:"20px 0"}}>아직 기록된 잔고가 없어요</div>}
+    </div>
+  </div>;
+}
+
 function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel}){
   const [editIdx,setEditIdx]=useState(null); // {type,idx}
 
@@ -548,6 +650,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
       </div>}
       <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
       <Row label="유형"><Seg items={EXP_TYPES} value={form.type} onChange={v=>setForm({...form,type:v})} ac={blue}/></Row>
+      {form.type==="카드"&&<Row label="결제일"><input type="date" placeholder="비우면 구매일 기준" value={form.payDate||""} onChange={e=>setForm({...form,payDate:e.target.value})} style={S.inp}/></Row>}
       <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
       <Row label="대상"><Seg items={TARGETS} value={form.target} onChange={v=>setForm({...form,target:v})} ac={yel}/></Row>
       {!form.foreignCurrency&&<Row label="금액"><input type="number" placeholder="숫자만" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
@@ -605,6 +708,7 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast}){
           </div>
         </div>}
         <Row label="날짜"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={S.inp}/></Row>
+        <Row label="결제일"><input type="date" placeholder="비우면 구매일 기준" value={form.payDate||""} onChange={e=>setForm({...form,payDate:e.target.value})} style={S.inp}/></Row>
         {!form.foreignCurrency&&<Row label="금액"><input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} style={S.inp}/></Row>}
         <Row label="사용처"><input type="text" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})} style={S.inp}/></Row>
         <Row label="카테고리"><select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} style={S.inp}>{expCats.map(c=><option key={c}>{c}</option>)}</select></Row>
@@ -655,6 +759,8 @@ export default function App(){
   const [showFilter, setShowFilter] = useState(false);
   const [clipPopup, setClipPopup] = useState(null); // 클립보드 파싱 팝업 데이터
   const [toast,   setToast]   = useState("");
+  const [balances, setBalances] = useState([]);
+  const [startBalance, setStartBalanceState] = useState(null); // {amount, date}
 
   // Firestore 실시간 구독 - 거래 내역
   useEffect(()=>{
@@ -665,6 +771,27 @@ export default function App(){
     });
     return unsub;
   },[]);
+
+  // Firestore 실시간 구독 - 잔고 기록
+  useEffect(()=>{
+    const q = query(collection(db,"balances"));
+    const unsub = onSnapshot(q, snap=>{
+      setBalances(snap.docs.map(d=>({...d.data(), id:d.id})));
+    });
+    return unsub;
+  },[]);
+
+  // Firestore 실시간 구독 - 시작 잔고 (단일 문서: settings/balanceStart)
+  useEffect(()=>{
+    const ref = doc(db,"settings","balanceStart");
+    const unsub = onSnapshot(ref, snap=>{
+      setStartBalanceState(snap.exists()?snap.data():null);
+    });
+    return unsub;
+  },[]);
+  const setStartBalance=(amount,date)=>{
+    setDoc(doc(db,"settings","balanceStart"), {amount:Number(amount), date});
+  };
 
   // Firestore 실시간 구독 - 카테고리 (단일 문서: settings/categories)
   useEffect(()=>{
@@ -731,6 +858,14 @@ export default function App(){
     deleteDoc(doc(db,"records",id)).then(()=>showToast("삭제됨")).catch(()=>showToast("삭제 실패"));
   };
 
+  const handleAddBalance=(data)=>{
+    addDoc(collection(db,"balances"), {...data, createdAt: Date.now()});
+    showToast("잔고 기록됨");
+  };
+  const handleDelBalance=id=>{
+    deleteDoc(doc(db,"balances",id)).then(()=>showToast("삭제됨")).catch(()=>showToast("삭제 실패"));
+  };
+
   const startEdit=r=>{setEditRec(r);setIMode(r.mode||"expense");setPage("input");};
 
   const sorted  =[...records].sort((a,b)=>{
@@ -774,6 +909,7 @@ export default function App(){
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
   if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
+  if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance}/>;
 
   return <div style={S.root}>
     <header style={S.header}>
@@ -782,6 +918,7 @@ export default function App(){
         <span style={{fontSize:18,fontWeight:800,letterSpacing:-0.5,color:"#1e293b"}}>가계부</span>
       </div>
       <div style={{display:"flex",gap:4}}>
+        <button onClick={()=>setPage("balance")}  style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>🏦</button>
         <button onClick={()=>setPage("upload")}   style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>📂</button>
         <button onClick={()=>setPage("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>⚙️</button>
       </div>
