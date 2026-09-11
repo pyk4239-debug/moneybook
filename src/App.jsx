@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v1.5.0 (2026-09-11)";
+const APP_VERSION = "v1.6.0 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function buildPayDate(monthStr, day){
@@ -420,7 +420,7 @@ function UploadPage({onImport, onBack, showToast}){
 }
 
 /* ── 설정 화면 ── */
-function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartBalance}){
+function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartBalance,payDayOverrides}){
   const today=()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`;};
   const [date,setDate]   = useState(today());
   const [label,setLabel] = useState("");
@@ -433,7 +433,14 @@ function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartB
   const latest=sorted[0];
 
   // 자동계산 잔액: 시작잔고 + (시작일 이후 거래 전부 합산). 카드는 결제일(없으면 구매일) 기준
-  const effDate = r => (r.type==="카드" && r.payDate) ? r.payDate : r.date;
+  // 카드는 결제일(payDate) 기준, 단 해당 결제월에 예외(공휴일로 밀린 날짜 등)가 등록돼 있으면 그 날짜로 대체
+  const effDate = r => {
+    if(r.type!=="카드" || !r.payDate) return r.date;
+    const month = r.payDate.slice(0,7);
+    const override = (payDayOverrides||{})[month];
+    if(override) return buildPayDate(month, override);
+    return r.payDate;
+  };
   const autoBalance = (()=>{
     if(!startBalance) return null;
     let bal = Number(startBalance.amount)||0;
@@ -522,9 +529,11 @@ function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartB
   </div>;
 }
 
-function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel,cardPayDay,setCardPayDay}){
+function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel,cardPayDay,setCardPayDay,payDayOverrides,setMonthOverride}){
   const [editIdx,setEditIdx]=useState(null); // {type,idx}
   const [payDayInput,setPayDayInput]=useState(cardPayDay);
+  const [ovMonth,setOvMonth]=useState("");
+  const [ovDay,setOvDay]=useState("");
 
   // 중복 항목 그룹화 (날짜+구분+유형+카테고리+대상+금액+메모 모두 같은 것)
   const dupGroups = (()=>{
@@ -587,6 +596,21 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
           onBlur={()=>{ if(payDayInput&&!isNaN(payDayInput)) setCardPayDay(payDayInput); }}
           style={{width:60,padding:"6px 8px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,textAlign:"center"}}/>
         <span style={{fontSize:13,color:"#64748b"}}>일</span>
+      </div>
+      <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:12,padding:"12px 16px",display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#92400e"}}>📅 결제월별 예외 (공휴일 등으로 며칠 밀린 달만)</div>
+        <div style={{fontSize:11,color:"#92400e",opacity:0.8}}>통장에서 실제 결제일 확인되면 그 달만 등록 — 해당 월 카드거래 전부에 자동 적용돼요</div>
+        {Object.entries(payDayOverrides||{}).sort().map(([m,d])=>(
+          <div key={m} style={{display:"flex",alignItems:"center",gap:8,background:"#fff",borderRadius:8,padding:"6px 10px"}}>
+            <span style={{fontSize:13,flex:1}}>{m} → <b>{d}일</b></span>
+            <button onClick={()=>setMonthOverride(m,null)} style={{background:"#fef2f2",color:"#dc2626",border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>삭제</button>
+          </div>
+        ))}
+        <div style={{display:"flex",gap:6}}>
+          <input type="month" value={ovMonth} onChange={e=>setOvMonth(e.target.value)} style={{flex:1,padding:"6px 8px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:13}}/>
+          <input type="number" min="1" max="31" placeholder="일" value={ovDay} onChange={e=>setOvDay(e.target.value)} style={{width:50,padding:"6px 8px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:13,textAlign:"center"}}/>
+          <button onClick={()=>{ if(!ovMonth||!ovDay) return; setMonthOverride(ovMonth,ovDay); setOvMonth(""); setOvDay(""); }} style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:13,fontWeight:700,cursor:"pointer"}}>등록</button>
+        </div>
       </div>
       <div style={{fontSize:12,color:"#64748b",fontWeight:700,letterSpacing:0.5,marginTop:4}}>💸 지출 카테고리</div>
       {expCats.map((c,i)=>(
@@ -842,6 +866,21 @@ export default function App(){
   },[]);
   const setCardPayDay=day=>setDoc(doc(db,"settings","cardConfig"), {payDay:Number(day)});
 
+  // Firestore 실시간 구독 - 결제월별 예외 (예: "2026-10"월 결제분은 6일) - 공휴일 등으로 밀린 달만 한 번에 보정
+  const [payDayOverrides, setPayDayOverridesState] = useState({});
+  useEffect(()=>{
+    const ref = doc(db,"settings","payDayOverrides");
+    const unsub = onSnapshot(ref, snap=>{
+      setPayDayOverridesState(snap.exists()?(snap.data().map||{}):{});
+    });
+    return unsub;
+  },[]);
+  const setMonthOverride=(month,day)=>{
+    const next={...payDayOverrides};
+    if(day) next[month]=Number(day); else delete next[month];
+    setDoc(doc(db,"settings","payDayOverrides"), {map:next});
+  };
+
   // Firestore 실시간 구독 - 카테고리 (단일 문서: settings/categories)
   useEffect(()=>{
     const ref = doc(db,"settings","categories");
@@ -956,9 +995,9 @@ export default function App(){
 
   /* 설정 페이지 */
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
-  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay}/>;
+  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
-  if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance}/>;
+  if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance} payDayOverrides={payDayOverrides}/>;
 
   return <div style={S.root}>
     <header style={S.header}>
