@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v1.6.0 (2026-09-11)";
+const APP_VERSION = "v1.6.1 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function buildPayDate(monthStr, day){
@@ -443,10 +443,11 @@ function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartB
   };
   const autoBalance = (()=>{
     if(!startBalance) return null;
+    const todayStr = today();
     let bal = Number(startBalance.amount)||0;
     (records||[]).forEach(r=>{
       const d = effDate(r);
-      if(!d || d < startBalance.date) return;
+      if(!d || d < startBalance.date || d > todayStr) return; // 시작일~오늘 까지만 반영, 미래 결제예정 건은 제외
       bal += (r.mode==="income" ? Number(r.amount||0) : -Number(r.amount||0));
     });
     return bal;
