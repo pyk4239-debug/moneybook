@@ -23,9 +23,11 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v1.6.1 (2026-09-11)";
+const APP_VERSION = "v1.7.0 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
+function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
+
 function buildPayDate(monthStr, day){
   if(!monthStr) return "";
   const [y,m] = monthStr.split("-").map(Number);
@@ -420,6 +422,36 @@ function UploadPage({onImport, onBack, showToast}){
 }
 
 /* ── 설정 화면 ── */
+function DashboardPage({autoBalance,startBalance,upcomingCard,onEnter,onSetupBalance}){
+  return <div style={{minHeight:"100vh",background:"linear-gradient(180deg,#2563eb 0%,#1e40af 45%,#f8fafc 45%)",display:"flex",flexDirection:"column"}}>
+    <div style={{padding:"28px 24px 0",color:"#fff"}}>
+      <div style={{fontSize:15,fontWeight:700,opacity:0.9}}>₩ 가계부</div>
+    </div>
+
+    <div style={{margin:"20px 20px 0",background:"#fff",borderRadius:16,padding:"20px 22px",boxShadow:"0 8px 24px rgba(30,64,175,0.15)"}}>
+      {startBalance?<>
+        <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>🏦 은행 잔고 (자동계산)</div>
+        <div style={{fontSize:32,fontWeight:800,color:"#1e293b",marginTop:4}}>{Number(autoBalance).toLocaleString()}원</div>
+        <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>시작 {startBalance.date} 기준 자동 합산</div>
+      </>:<>
+        <div style={{fontSize:13,color:"#64748b"}}>아직 시작 잔고가 설정되지 않았어요</div>
+        <button onClick={onSetupBalance} style={{marginTop:10,background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>잔고 설정하러 가기</button>
+      </>}
+    </div>
+
+    <div style={{margin:"14px 20px 0",background:"#fff",borderRadius:16,padding:"18px 22px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
+      <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>💳 예정 카드 결제</div>
+      <div style={{fontSize:24,fontWeight:800,color:upcomingCard.total>0?"#dc2626":"#1e293b",marginTop:4}}>{Number(upcomingCard.total).toLocaleString()}원</div>
+      <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{upcomingCard.nextMonth?`가장 빠른 결제월: ${upcomingCard.nextMonth}`:"예정된 결제 없음"}</div>
+    </div>
+
+    <div style={{flex:1}}/>
+    <div style={{padding:"20px"}}>
+      <button onClick={onEnter} style={{width:"100%",background:"#1e293b",color:"#fff",border:"none",borderRadius:14,padding:"18px 0",fontSize:16,fontWeight:800,cursor:"pointer"}}>가계부 열기 →</button>
+    </div>
+  </div>;
+}
+
 function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartBalance,payDayOverrides}){
   const today=()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`;};
   const [date,setDate]   = useState(today());
@@ -808,7 +840,7 @@ export default function App(){
   const [expCats, setExpCats] = useState(DEFAULT_EXP);
   const [incCats, setIncCats] = useState(DEFAULT_INC);
   const [catLoaded, setCatLoaded] = useState(false);
-  const [page,    setPage]    = useState("home");
+  const [page,    setPage]    = useState("dashboard");
   const [iMode,   setIMode]   = useState("expense");
   const [editRec, setEditRec] = useState(null);
   const [fMonth,  setFMonth]  = useState(()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;});
@@ -881,6 +913,38 @@ export default function App(){
     if(day) next[month]=Number(day); else delete next[month];
     setDoc(doc(db,"settings","payDayOverrides"), {map:next});
   };
+
+  // 대시보드/잔고 공용 - 카드는 결제일(월별 예외 반영) 기준, 그 외는 거래일 기준
+  const effDate = r => {
+    if(r.type!=="카드" || !r.payDate) return r.date;
+    const month = r.payDate.slice(0,7);
+    const override = (payDayOverrides||{})[month];
+    if(override) return buildPayDate(month, override);
+    return r.payDate;
+  };
+  const autoBalance = (()=>{
+    if(!startBalance) return null;
+    const t = todayStr();
+    let bal = Number(startBalance.amount)||0;
+    records.forEach(r=>{
+      const d = effDate(r);
+      if(!d || d < startBalance.date || d > t) return;
+      bal += (r.mode==="income" ? Number(r.amount||0) : -Number(r.amount||0));
+    });
+    return bal;
+  })();
+  const upcomingCard = (()=>{
+    const t = todayStr();
+    let total = 0, nextMonth = null;
+    records.forEach(r=>{
+      if(r.type!=="카드"||r.mode!=="expense") return;
+      const d = effDate(r);
+      if(!d || d <= t) return; // 아직 안 빠진 미래 결제건만
+      total += Number(r.amount||0);
+      if(!nextMonth || d < nextMonth) nextMonth = d;
+    });
+    return { total, nextMonth: nextMonth?nextMonth.slice(0,7):null };
+  })();
 
   // Firestore 실시간 구독 - 카테고리 (단일 문서: settings/categories)
   useEffect(()=>{
@@ -996,13 +1060,14 @@ export default function App(){
 
   /* 설정 페이지 */
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
+  if(page==="dashboard") return <DashboardPage autoBalance={autoBalance} startBalance={startBalance} upcomingCard={upcomingCard} onEnter={()=>setPage("home")} onSetupBalance={()=>setPage("balance")}/>;
   if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
   if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance} payDayOverrides={payDayOverrides}/>;
 
   return <div style={S.root}>
     <header style={S.header}>
-      <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <div onClick={()=>setPage("dashboard")} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
         <div style={S.logo}>₩</div>
         <span style={{fontSize:18,fontWeight:800,letterSpacing:-0.5,color:"#1e293b"}}>가계부</span>
       </div>
