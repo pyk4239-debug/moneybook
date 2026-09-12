@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v1.8.0 (2026-09-11)";
+const APP_VERSION = "v1.8.1 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -428,46 +428,52 @@ function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,onEnter
   const dayPct   = pct(spendStats.curDay,   spendStats.preDay);
   const Trend = ({p}) => p==null?null:<span style={{fontSize:12,fontWeight:700,marginLeft:6,color:p>0?"#dc2626":"#2563eb"}}>{p>0?"▲":"▼"}{Math.abs(p)}%</span>;
 
-  return <div style={{minHeight:"100vh",background:"linear-gradient(180deg,#2563eb 0%,#1e40af 45%,#f8fafc 45%)",display:"flex",flexDirection:"column"}}>
-    <div style={{padding:"28px 24px 0",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div style={{fontSize:15,fontWeight:700,opacity:0.9}}>₩ 가계부</div>
-      <button onClick={onQuickInput} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ 빠른 입력</button>
-    </div>
-
-    <div style={{margin:"20px 20px 0",background:"#fff",borderRadius:16,padding:"20px 22px",boxShadow:"0 8px 24px rgba(30,64,175,0.15)"}}>
-      {startBalance?<>
-        <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>🏦 은행 잔고 (자동계산)</div>
-        <div style={{fontSize:32,fontWeight:800,color:"#1e293b",marginTop:4}}>{Number(autoBalance).toLocaleString()}원</div>
-        <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>시작 {startBalance.date} 기준 자동 합산</div>
-      </>:<>
-        <div style={{fontSize:13,color:"#64748b"}}>아직 시작 잔고가 설정되지 않았어요</div>
-        <button onClick={onSetupBalance} style={{marginTop:10,background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>잔고 설정하러 가기</button>
-      </>}
-    </div>
-
-    <div style={{margin:"14px 20px 0",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-      <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
-        <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>당월 지출</div>
-        <div style={{fontSize:18,fontWeight:800,color:"#1e293b",marginTop:2}}>{spendStats.curMonth.toLocaleString()}원<Trend p={monthPct}/></div>
-        <div style={{fontSize:10,color:"#cbd5e1",marginTop:2}}>전월 {spendStats.preMonth.toLocaleString()}원</div>
-      </div>
-      <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
-        <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>당일 지출</div>
-        <div style={{fontSize:18,fontWeight:800,color:"#1e293b",marginTop:2}}>{spendStats.curDay.toLocaleString()}원<Trend p={dayPct}/></div>
-        <div style={{fontSize:10,color:"#cbd5e1",marginTop:2}}>전일 {spendStats.preDay.toLocaleString()}원</div>
+  return <div style={{minHeight:"100vh",background:"#f8fafc"}}>
+    {/* 상단 히어로 (고정 높이, 잔고카드가 아래쪽에 살짝 겹치도록) */}
+    <div style={{background:"linear-gradient(135deg,#2563eb,#1e40af)",padding:"28px 24px 56px",borderRadius:"0 0 28px 28px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:15,fontWeight:700,color:"#fff",opacity:0.9}}>₩ 가계부</div>
+        <button onClick={onQuickInput} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ 빠른 입력</button>
       </div>
     </div>
 
-    <div style={{margin:"12px 20px 0",background:"#fff",borderRadius:16,padding:"18px 22px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
-      <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>💳 예정 카드 결제</div>
-      <div style={{fontSize:24,fontWeight:800,color:upcomingCard.total>0?"#dc2626":"#1e293b",marginTop:4}}>{Number(upcomingCard.total).toLocaleString()}원</div>
-      <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{upcomingCard.nextMonth?`가장 빠른 결제월: ${upcomingCard.nextMonth}`:"예정된 결제 없음"}</div>
-    </div>
+    <div style={{padding:"0 20px",marginTop:-40,display:"flex",flexDirection:"column",gap:12}}>
+      {/* 잔고 카드 (히어로에 살짝 겹침) */}
+      <div style={{background:"#fff",borderRadius:16,padding:"20px 22px",boxShadow:"0 8px 24px rgba(30,64,175,0.15)"}}>
+        {startBalance?<>
+          <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>🏦 은행 잔고 (자동계산)</div>
+          <div style={{fontSize:32,fontWeight:800,color:"#1e293b",marginTop:4}}>{Number(autoBalance).toLocaleString()}원</div>
+          <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>시작 {startBalance.date} 기준 자동 합산</div>
+        </>:<>
+          <div style={{fontSize:13,color:"#64748b"}}>아직 시작 잔고가 설정되지 않았어요</div>
+          <button onClick={onSetupBalance} style={{marginTop:10,background:"#2563eb",color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>잔고 설정하러 가기</button>
+        </>}
+      </div>
 
-    <div style={{flex:1}}/>
-    <div style={{padding:"20px",display:"flex",flexDirection:"column",gap:8}}>
-      <button onClick={onEnter} style={{width:"100%",background:"#1e293b",color:"#fff",border:"none",borderRadius:14,padding:"18px 0",fontSize:16,fontWeight:800,cursor:"pointer"}}>가계부 열기 →</button>
-      <div style={{textAlign:"center",color:"#cbd5e1",fontSize:11}}>{APP_VERSION}</div>
+      {/* 당월/당일 지출 */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>당월 지출</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#1e293b",marginTop:2}}>{spendStats.curMonth.toLocaleString()}원<Trend p={monthPct}/></div>
+          <div style={{fontSize:10,color:"#cbd5e1",marginTop:2}}>전월 {spendStats.preMonth.toLocaleString()}원</div>
+        </div>
+        <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>당일 지출</div>
+          <div style={{fontSize:18,fontWeight:800,color:"#1e293b",marginTop:2}}>{spendStats.curDay.toLocaleString()}원<Trend p={dayPct}/></div>
+          <div style={{fontSize:10,color:"#cbd5e1",marginTop:2}}>전일 {spendStats.preDay.toLocaleString()}원</div>
+        </div>
+      </div>
+
+      {/* 예정 카드 결제 */}
+      <div style={{background:"#fff",borderRadius:16,padding:"18px 22px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
+        <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>💳 예정 카드 결제</div>
+        <div style={{fontSize:24,fontWeight:800,color:upcomingCard.total>0?"#dc2626":"#1e293b",marginTop:4}}>{Number(upcomingCard.total).toLocaleString()}원</div>
+        <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{upcomingCard.nextMonth?`가장 빠른 결제월: ${upcomingCard.nextMonth}`:"예정된 결제 없음"}</div>
+      </div>
+
+      {/* 가계부 열기 */}
+      <button onClick={onEnter} style={{width:"100%",background:"#1e293b",color:"#fff",border:"none",borderRadius:14,padding:"18px 0",fontSize:16,fontWeight:800,cursor:"pointer",marginTop:8}}>가계부 열기 →</button>
+      <div style={{textAlign:"center",color:"#cbd5e1",fontSize:11,paddingBottom:24}}>{APP_VERSION}</div>
     </div>
   </div>;
 }
