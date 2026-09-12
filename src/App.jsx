@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v1.8.2 (2026-09-11) — 안정화";
+const APP_VERSION = "v1.9.0 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -422,11 +422,13 @@ function UploadPage({onImport, onBack, showToast}){
 }
 
 /* ── 설정 화면 ── */
-function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,onEnter,onSetupBalance,onQuickInput}){
+function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,cardMonthly,onEnter,onSetupBalance,onQuickInput}){
   const pct = (cur,pre) => pre>0 ? Math.round((cur-pre)/pre*100) : null;
   const monthPct = pct(spendStats.curMonth, spendStats.preMonth);
   const dayPct   = pct(spendStats.curDay,   spendStats.preDay);
   const Trend = ({p}) => p==null?null:<span style={{fontSize:12,fontWeight:700,marginLeft:6,color:p>0?"#dc2626":"#2563eb"}}>{p>0?"▲":"▼"}{Math.abs(p)}%</span>;
+  const maxCard = Math.max(1, ...cardMonthly.map(m=>m.total));
+  const fmtMan = n => n>=10000 ? `${Math.round(n/10000)}만` : n.toLocaleString();
 
   return <div style={{minHeight:"100vh",background:"#f8fafc"}}>
     {/* 상단 히어로 (고정 높이, 잔고카드가 아래쪽에 살짝 겹치도록) */}
@@ -469,6 +471,22 @@ function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,onEnter
         <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>💳 예정 카드 결제</div>
         <div style={{fontSize:24,fontWeight:800,color:upcomingCard.total>0?"#dc2626":"#1e293b",marginTop:4}}>{Number(upcomingCard.total).toLocaleString()}원</div>
         <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{upcomingCard.nextMonth?`가장 빠른 결제월: ${upcomingCard.nextMonth}`:"예정된 결제 없음"}</div>
+      </div>
+
+      {/* 월별 카드 사용량 */}
+      <div style={{background:"#fff",borderRadius:16,padding:"18px 22px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
+        <div style={{fontSize:12,color:"#64748b",fontWeight:600,marginBottom:14}}>📊 월별 카드 사용량 (최근 6개월)</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:8,height:110}}>
+          {cardMonthly.map(m=>{
+            const isCur = m.month===cardMonthly[cardMonthly.length-1].month;
+            const h = Math.max(4, Math.round(m.total/maxCard*90));
+            return <div key={m.month} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <div style={{fontSize:10,color:"#64748b",fontWeight:700}}>{m.total>0?fmtMan(m.total):""}</div>
+              <div style={{width:"100%",maxWidth:28,height:h,borderRadius:6,background:isCur?"#2563eb":"#bfdbfe"}}/>
+              <div style={{fontSize:10,color:isCur?"#2563eb":"#94a3b8",fontWeight:isCur?800:600}}>{Number(m.month.slice(5,7))}월</div>
+            </div>;
+          })}
+        </div>
       </div>
 
       {/* 가계부 열기 */}
@@ -994,6 +1012,21 @@ export default function App(){
     return { curMonth, preMonth, curDay, preDay };
   })();
 
+  // 최근 6개월 카드 사용량 (구매일 기준, 대시보드 막대그래프용)
+  const cardMonthly = (()=>{
+    const t = new Date();
+    const months = [];
+    for(let i=5;i>=0;i--){
+      const d = new Date(t.getFullYear(), t.getMonth()-i, 1);
+      months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+    }
+    const totals = months.map(m=>({
+      month: m,
+      total: records.filter(r=>r.mode==="expense"&&r.type==="카드"&&r.date&&r.date.startsWith(m)).reduce((s,r)=>s+Number(r.amount||0),0)
+    }));
+    return totals;
+  })();
+
   // Firestore 실시간 구독 - 카테고리 (단일 문서: settings/categories)
   useEffect(()=>{
     const ref = doc(db,"settings","categories");
@@ -1108,7 +1141,7 @@ export default function App(){
 
   /* 설정 페이지 */
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
-  if(page==="dashboard") return <DashboardPage autoBalance={autoBalance} startBalance={startBalance} upcomingCard={upcomingCard} spendStats={spendStats} onEnter={()=>setPage("home")} onSetupBalance={()=>setPage("balance")} onQuickInput={()=>{setIMode("expense");setEditRec(null);setPage("input");}}/>;
+  if(page==="dashboard") return <DashboardPage autoBalance={autoBalance} startBalance={startBalance} upcomingCard={upcomingCard} spendStats={spendStats} cardMonthly={cardMonthly} onEnter={()=>setPage("home")} onSetupBalance={()=>setPage("balance")} onQuickInput={()=>{setIMode("expense");setEditRec(null);setPage("input");}}/>;
   if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
   if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance} payDayOverrides={payDayOverrides}/>;
