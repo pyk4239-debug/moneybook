@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v1.9.2 (2026-09-11)";
+const APP_VERSION = "v2.1.0 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -68,6 +68,39 @@ async function fetchRate(currency) {
       return data.rates?.KRW || null;
     } catch { return null; }
   }
+}
+
+// 카드사 명세서(엑셀에서 복사한 탭구분 텍스트) 파싱: "08/10 <tab> 가맹점명 <tab> 96,043 ..." 형태
+function parseStatementPaste(text){
+  return text.split("\n").map(line=>{
+    const cols = line.split("\t").map(s=>s.trim()).filter(s=>s!=="");
+    if(cols.length<3) return null;
+    const dm = cols[0].match(/^(\d{1,2})\/(\d{1,2})$/); // 08/10
+    if(!dm) return null;
+    const merchant = cols[1];
+    const amountCol = cols.find((c,i)=>i>=2 && /^[\d,]+$/.test(c));
+    if(!amountCol) return null;
+    return { md: `${dm[1].padStart(2,"0")}-${dm[2].padStart(2,"0")}`, merchant, amount: parseInt(amountCol.replace(/,/g,""),10) };
+  }).filter(Boolean);
+}
+
+// 미확정 해외결제 목록과 명세서 파싱결과를 날짜(월-일)+금액 근접도로 매칭
+function matchStatement(rows, unconfirmed){
+  const used = new Set();
+  const matches = [];
+  rows.forEach(row=>{
+    let best=null, bestDiff=Infinity;
+    unconfirmed.forEach(r=>{
+      if(used.has(r.id)) return;
+      if(!r.date || r.date.slice(5)!==row.md) return; // 월-일 일치
+      const diff = Math.abs(Number(r.amount||0)-row.amount);
+      if(diff<bestDiff){ bestDiff=diff; best=r; }
+    });
+    if(best){ used.add(best.id); matches.push({row, record:best}); }
+    else matches.push({row, record:null});
+  });
+  const unmatchedRecords = unconfirmed.filter(r=>!used.has(r.id));
+  return { matches, unmatchedRecords };
 }
 
 async function parseCard(txt) {
@@ -607,11 +640,71 @@ function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartB
   </div>;
 }
 
-function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel,cardPayDay,setCardPayDay,payDayOverrides,setMonthOverride}){
+function ForeignConfirmRow({r, onConfirm}){
+  const [fa,setFa]=useState(r.foreignAmount||"");
+  const [wb,setWb]=useState(r.wonBase||"");
+  const [fee,setFee]=useState(r.feeAmount||"");
+  const onFa=v=>{
+    setFa(v);
+    if(r.rate){ const nwb=Math.round(Number(v)*r.rate); const nfee=Math.round(nwb*FX_FEE); setWb(nwb); setFee(nfee); }
+  };
+  const onWb=v=>{ setWb(v); setFee(Math.round(Number(v)*FX_FEE)); };
+  const total = (Number(wb)||0)+(Number(fee)||0);
+  return <div style={{background:"#fff",borderRadius:10,padding:"10px 12px",border:"1px solid #fde68a",display:"flex",flexDirection:"column",gap:6}}>
+    <div style={{fontSize:12,color:"#1e293b"}}><b>{r.memo||r.category}</b> · {r.date} · {r.foreignCurrency}</div>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <span style={{fontSize:11,color:"#92400e",minWidth:44}}>외화금액</span>
+      <input type="number" value={fa} onChange={e=>onFa(e.target.value)} style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:13}}/>
+    </div>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <span style={{fontSize:11,color:"#92400e",minWidth:44}}>승인금액</span>
+      <input type="number" value={wb} onChange={e=>onWb(e.target.value)} style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:13}}/>
+    </div>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <span style={{fontSize:11,color:"#92400e",minWidth:44}}>수수료</span>
+      <input type="number" value={fee} onChange={e=>setFee(e.target.value)} style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:13}}/>
+    </div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:2}}>
+      <span style={{fontSize:12,fontWeight:700,color:"#92400e"}}>합계 {total.toLocaleString()}원</span>
+      <button onClick={()=>onConfirm(r.id,{foreignAmount:Number(fa)||0,wonBase:Number(wb)||0,feeAmount:Number(fee)||0,amount:total})}
+        style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✔ 확정</button>
+    </div>
+  </div>;
+}
+
+function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel,cardPayDay,setCardPayDay,payDayOverrides,setMonthOverride,confirmForeign}){
   const [editIdx,setEditIdx]=useState(null); // {type,idx}
   const [payDayInput,setPayDayInput]=useState(cardPayDay);
   const [ovMonth,setOvMonth]=useState("");
   const [ovDay,setOvDay]=useState("");
+
+  // 미확정 해외결제 (문자파싱 직후 저장된 추정치, 아직 실제 금액으로 확정 안 된 것)
+  const unconfirmedForeign = (records||[]).filter(r=>r.foreignCurrency && r.confirmed===false);
+  const [showStatement,setShowStatement] = useState(false);
+  const [statementText,setStatementText] = useState("");
+  const [matchResult,setMatchResult] = useState(null); // {matches, unmatchedRecords}
+  const [checkedRows,setCheckedRows] = useState({});
+
+  const doMatch=()=>{
+    const rows = parseStatementPaste(statementText);
+    if(rows.length===0) return showToast("파싱 실패 — 형식을 확인하세요");
+    const result = matchStatement(rows, unconfirmedForeign);
+    setMatchResult(result);
+    const init={}; result.matches.forEach((m,i)=>{ if(m.record) init[i]=true; });
+    setCheckedRows(init);
+  };
+  const applyMatches=()=>{
+    let n=0;
+    matchResult.matches.forEach((m,i)=>{
+      if(!m.record || !checkedRows[i]) return;
+      const wonBaseNew = Math.round(m.row.amount/(1+FX_FEE));
+      const feeNew = m.row.amount - wonBaseNew;
+      confirmForeign(m.record.id, {wonBase:wonBaseNew, feeAmount:feeNew, amount:m.row.amount});
+      n++;
+    });
+    showToast(`${n}건 일괄 확정됨`);
+    setShowStatement(false); setStatementText(""); setMatchResult(null); setCheckedRows({});
+  };
 
   // 중복 항목 그룹화 (날짜+구분+유형+카테고리+대상+금액+메모 모두 같은 것)
   const dupGroups = (()=>{
@@ -653,6 +746,35 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
       <button onClick={onBack} style={{background:"#f1f5f9",border:"none",color:"#64748b",borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>← 닫기</button>
     </div>
     <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:10,paddingBottom:60}}>
+      {unconfirmedForeign.length>0&&<div style={{background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#92400e"}}>🌏 미확정 해외결제 — {unconfirmedForeign.length}건</div>
+        <div style={{fontSize:11,color:"#92400e",opacity:0.8,marginTop:-6}}>명세서 실제 금액으로 고치고 확정 누르면 목록에서 사라져요</div>
+        {!showStatement&&<button onClick={()=>setShowStatement(true)} style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,padding:"8px 0",fontSize:12,fontWeight:700,cursor:"pointer"}}>📋 명세서 붙여넣기로 일괄매칭</button>}
+        {showStatement&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{fontSize:11,color:"#92400e"}}>엑셀에서 날짜·가맹점명·금액 표 영역을 복사해서 붙여넣으세요</div>
+          <textarea value={statementText} onChange={e=>setStatementText(e.target.value)} placeholder={"08/10\tCINEPLEX 8030 WEB QPS\t96,043\t...\n08/12\tDOLLARAMA # 296\t42,289\t..."} rows={5}
+            style={{padding:"8px 10px",borderRadius:8,border:"1px solid #fde68a",fontSize:12,fontFamily:"monospace"}}/>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={doMatch} style={{flex:1,background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,padding:"8px 0",fontSize:12,fontWeight:700,cursor:"pointer"}}>매칭하기</button>
+            <button onClick={()=>{setShowStatement(false);setStatementText("");setMatchResult(null);}} style={{background:"#fff",color:"#92400e",border:"1px solid #fde68a",borderRadius:8,padding:"8px 14px",fontSize:12,cursor:"pointer"}}>취소</button>
+          </div>
+          {matchResult&&<div style={{display:"flex",flexDirection:"column",gap:8,marginTop:4}}>
+            {matchResult.matches.map((m,i)=>(
+              <div key={i} style={{background:"#fff",borderRadius:10,padding:"8px 10px",border:`1px solid ${m.record?"#bbf7d0":"#fecaca"}`,fontSize:11,display:"flex",alignItems:"center",gap:8}}>
+                {m.record?<input type="checkbox" checked={!!checkedRows[i]} onChange={e=>setCheckedRows({...checkedRows,[i]:e.target.checked})} style={{width:16,height:16}}/>:<span style={{fontSize:14}}>⚠️</span>}
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,color:"#1e293b"}}>{m.row.md} · {m.row.merchant} · {m.row.amount.toLocaleString()}원</div>
+                  {m.record?<div style={{color:"#16a34a"}}>→ 매칭됨: {m.record.memo||m.record.category} (기존 추정 {Number(m.record.amount).toLocaleString()}원)</div>
+                    :<div style={{color:"#dc2626"}}>매칭되는 미확정 건 없음 (날짜 다르거나 이미 확정됨)</div>}
+                </div>
+              </div>
+            ))}
+            {matchResult.unmatchedRecords.length>0&&<div style={{fontSize:11,color:"#92400e"}}>⚠️ 명세서에 없는 미확정 건 {matchResult.unmatchedRecords.length}개는 그대로 남아요</div>}
+            <button onClick={applyMatches} style={{background:"#16a34a",color:"#fff",border:"none",borderRadius:8,padding:"10px 0",fontSize:13,fontWeight:700,cursor:"pointer"}}>체크된 항목 일괄 확정</button>
+          </div>}
+        </div>}
+        {unconfirmedForeign.map(r=><ForeignConfirmRow key={r.id} r={r} onConfirm={confirmForeign}/>)}
+      </div>}
       {dupGroups.length>0&&<div style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:12,padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
         <div style={{fontSize:13,fontWeight:800,color:"#dc2626"}}>🧹 중복 항목 발견 — {dupGroups.length}건</div>
         {dupGroups.map((g,i)=>{
@@ -735,7 +857,13 @@ function ExpPage({expCats,onSave,editData,onCancel,showToast,cardPayDay}){
   const prev=useRef(null);
   useEffect(()=>{if(editData&&editData!==prev.current){setForm(editData);setTab("manual");prev.current=editData;}},[editData]);
   const blue={bg:"#eff6ff",b:"#3b82f6",c:"#2563eb"}, yel={bg:"#fffbeb",b:"#f59e0b",c:"#d97706"};
-  const doSave=()=>{if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");onSave({...form,amount:Number(form.amount)});setForm(blankE(expCats[0]));setPaste("");setParsed(null);setPs("idle");};
+  const doSave=()=>{
+    if(!form.amount||isNaN(form.amount))return showToast("금액을 입력하세요");
+    const data={...form,amount:Number(form.amount)};
+    if(data.foreignCurrency) data.confirmed = (tab==="manual"); // 문자파싱 직후 저장=미확정(추정치), 수동입력/수정 저장=확정
+    onSave(data);
+    setForm(blankE(expCats[0]));setPaste("");setParsed(null);setPs("idle");
+  };
   const doParse=async()=>{
     setPs("loading");
     const r = await parseCard(paste);
@@ -1096,6 +1224,11 @@ export default function App(){
     deleteDoc(doc(db,"records",id)).then(()=>showToast("삭제됨")).catch(()=>showToast("삭제 실패"));
   };
 
+  const confirmForeign=(id, patch)=>{
+    const clean_data = clean({...patch, confirmed:true});
+    updateDoc(doc(db,"records",id), clean_data).then(()=>showToast("확정됨")).catch(()=>showToast("확정 실패"));
+  };
+
   const handleAddBalance=(data)=>{
     addDoc(collection(db,"balances"), {...data, createdAt: Date.now()});
     showToast("잔고 기록됨");
@@ -1146,7 +1279,7 @@ export default function App(){
   /* 설정 페이지 */
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
   if(page==="dashboard") return <DashboardPage autoBalance={autoBalance} startBalance={startBalance} upcomingCard={upcomingCard} spendStats={spendStats} cardMonthly={cardMonthly} onEnter={()=>setPage("home")} onSetupBalance={()=>setPage("balance")}/>;
-  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride}/>;
+  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride} confirmForeign={confirmForeign}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
   if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance} payDayOverrides={payDayOverrides}/>;
 
@@ -1159,7 +1292,10 @@ export default function App(){
       <div style={{display:"flex",gap:4}}>
         <button onClick={()=>setPage("balance")}  style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>🏦</button>
         <button onClick={()=>setPage("upload")}   style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>📂</button>
-        <button onClick={()=>setPage("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>⚙️</button>
+        <button onClick={()=>setPage("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8",position:"relative"}}>
+          ⚙️
+          {records.filter(r=>r.foreignCurrency&&r.confirmed===false).length>0&&<span style={{position:"absolute",top:-2,right:-2,background:"#dc2626",color:"#fff",borderRadius:"50%",width:14,height:14,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{records.filter(r=>r.foreignCurrency&&r.confirmed===false).length}</span>}
+        </button>
       </div>
     </header>
 
@@ -1236,7 +1372,7 @@ export default function App(){
               {r.mode==="expense"&&r.target&&<span style={{...S.badge,background:"#fffbeb",color:"#d97706",border:"1px solid #fcd34d"}}>{r.target}</span>}
             </div>
             <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#475569"}}>{r.memo||"—"}</div>
-            {r.foreignCurrency&&<div style={{fontSize:11,color:"#0369a1",marginTop:3}}>🌏 {r.foreignCurrency} {r.foreignAmount} · 수수료 {Number(r.feeAmount||0).toLocaleString()}원</div>}
+            {r.foreignCurrency&&<div style={{fontSize:11,color:"#0369a1",marginTop:3}}>🌏 {r.foreignCurrency} {r.foreignAmount} · 수수료 {Number(r.feeAmount||0).toLocaleString()}원 {r.confirmed===false&&<span style={{background:"#fef3c7",color:"#92400e",borderRadius:6,padding:"1px 6px",marginLeft:4,fontSize:10,fontWeight:700}}>미확정</span>}</div>}
           </div>
           <div style={{textAlign:"right",minWidth:90}}>
             <div style={{fontSize:15,fontWeight:800,color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"+":"-"}{fmt(r.amount)}</div>
