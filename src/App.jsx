@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v2.1.0 (2026-09-11)";
+const APP_VERSION = "v2.1.1 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -672,7 +672,7 @@ function ForeignConfirmRow({r, onConfirm}){
   </div>;
 }
 
-function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel,cardPayDay,setCardPayDay,payDayOverrides,setMonthOverride,confirmForeign}){
+function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,records,handleDel,cardPayDay,setCardPayDay,payDayOverrides,setMonthOverride,confirmForeign,markAllForeignUnconfirmed}){
   const [editIdx,setEditIdx]=useState(null); // {type,idx}
   const [payDayInput,setPayDayInput]=useState(cardPayDay);
   const [ovMonth,setOvMonth]=useState("");
@@ -680,6 +680,8 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
 
   // 미확정 해외결제 (문자파싱 직후 저장된 추정치, 아직 실제 금액으로 확정 안 된 것)
   const unconfirmedForeign = (records||[]).filter(r=>r.foreignCurrency && r.confirmed===false);
+  const allForeignCount = (records||[]).filter(r=>r.foreignCurrency).length;
+  const alreadyUnconfirmableCount = (records||[]).filter(r=>r.foreignCurrency && r.confirmed!==true).length - unconfirmedForeign.length; // confirmed가 아예 없는(undefined) 과거건 수
   const [showStatement,setShowStatement] = useState(false);
   const [statementText,setStatementText] = useState("");
   const [matchResult,setMatchResult] = useState(null); // {matches, unmatchedRecords}
@@ -746,6 +748,10 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
       <button onClick={onBack} style={{background:"#f1f5f9",border:"none",color:"#64748b",borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>← 닫기</button>
     </div>
     <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:10,paddingBottom:60}}>
+      {allForeignCount>0&&alreadyUnconfirmableCount>0&&<div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:12,color:"#0369a1",flex:1}}>과거 해외결제 {alreadyUnconfirmableCount}건이 아직 검토 목록에 안 잡혀있어요</span>
+        <button onClick={markAllForeignUnconfirmed} style={{background:"#0369a1",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>전부 미확정으로</button>
+      </div>}
       {unconfirmedForeign.length>0&&<div style={{background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
         <div style={{fontSize:13,fontWeight:800,color:"#92400e"}}>🌏 미확정 해외결제 — {unconfirmedForeign.length}건</div>
         <div style={{fontSize:11,color:"#92400e",opacity:0.8,marginTop:-6}}>명세서 실제 금액으로 고치고 확정 누르면 목록에서 사라져요</div>
@@ -1229,6 +1235,13 @@ export default function App(){
     updateDoc(doc(db,"records",id), clean_data).then(()=>showToast("확정됨")).catch(()=>showToast("확정 실패"));
   };
 
+  const markAllForeignUnconfirmed=()=>{
+    const targets = records.filter(r=>r.foreignCurrency && r.confirmed!==true);
+    if(targets.length===0) return showToast("이미 다 확정됨/미확정 상태예요");
+    targets.forEach(r=>updateDoc(doc(db,"records",r.id), {confirmed:false}));
+    showToast(`${targets.length}건 미확정으로 전환됨`);
+  };
+
   const handleAddBalance=(data)=>{
     addDoc(collection(db,"balances"), {...data, createdAt: Date.now()});
     showToast("잔고 기록됨");
@@ -1279,7 +1292,7 @@ export default function App(){
   /* 설정 페이지 */
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
   if(page==="dashboard") return <DashboardPage autoBalance={autoBalance} startBalance={startBalance} upcomingCard={upcomingCard} spendStats={spendStats} cardMonthly={cardMonthly} onEnter={()=>setPage("home")} onSetupBalance={()=>setPage("balance")}/>;
-  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride} confirmForeign={confirmForeign}/>;
+  if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride} confirmForeign={confirmForeign} markAllForeignUnconfirmed={markAllForeignUnconfirmed}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
   if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance} payDayOverrides={payDayOverrides}/>;
 
