@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v1.9.1 (2026-09-11)";
+const APP_VERSION = "v1.9.2 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -458,7 +458,7 @@ function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,cardMon
         <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
           <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>당월 지출</div>
           <div style={{fontSize:18,fontWeight:800,color:"#1e293b",marginTop:2}}>{spendStats.curMonth.toLocaleString()}원<Trend p={monthPct}/></div>
-          <div style={{fontSize:10,color:"#cbd5e1",marginTop:2}}>전월 {spendStats.preMonth.toLocaleString()}원</div>
+          <div style={{fontSize:10,color:"#cbd5e1",marginTop:2}}>전월 {spendStats.cutoffDay}일까지 {spendStats.preMonth.toLocaleString()}원</div>
         </div>
         <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
           <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>당일 지출</div>
@@ -999,18 +999,21 @@ export default function App(){
     const pm = new Date(y, m-1, 1);
     const prevMonth = `${pm.getFullYear()}-${String(pm.getMonth()+1).padStart(2,"0")}`;
     const todayD = todayStr();
+    const todayDay = t.getDate();
+    const daysInPrevMonth = new Date(pm.getFullYear(), pm.getMonth()+1, 0).getDate();
+    const cutoffDay = Math.min(todayDay, daysInPrevMonth); // 전월도 "오늘과 같은 날짜"까지만 비교
     const yd = new Date(t); yd.setDate(yd.getDate()-1);
     const yestD = `${yd.getFullYear()}-${String(yd.getMonth()+1).padStart(2,"0")}-${String(yd.getDate()).padStart(2,"0")}`;
     let curMonth=0, preMonth=0, curDay=0, preDay=0;
     records.forEach(r=>{
       if(r.mode!=="expense"||!r.date) return;
       const amt=Number(r.amount||0);
-      if(r.date.startsWith(thisMonth)) curMonth+=amt;
-      if(r.date.startsWith(prevMonth)) preMonth+=amt;
+      if(r.date.startsWith(thisMonth) && Number(r.date.slice(8,10))<=todayDay) curMonth+=amt;
+      if(r.date.startsWith(prevMonth) && Number(r.date.slice(8,10))<=cutoffDay) preMonth+=amt;
       if(r.date===todayD) curDay+=amt;
       if(r.date===yestD) preDay+=amt;
     });
-    return { curMonth, preMonth, curDay, preDay };
+    return { curMonth, preMonth, curDay, preDay, cutoffDay };
   })();
 
   // 최근 6개월 카드 사용량 (구매일 기준, 대시보드 막대그래프용)
