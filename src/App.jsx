@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v2.1.1 (2026-09-11)";
+const APP_VERSION = "v2.2.0 (2026-09-11)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -527,6 +527,90 @@ function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,cardMon
       <button onClick={onEnter} style={{width:"100%",background:"#1e293b",color:"#fff",border:"none",borderRadius:14,padding:"18px 0",fontSize:16,fontWeight:800,cursor:"pointer",marginTop:8}}>가계부 열기 →</button>
       <div style={{textAlign:"center",color:"#cbd5e1",fontSize:11,paddingBottom:24}}>{APP_VERSION}</div>
     </div>
+  </div>;
+}
+
+function CalendarPage({records,onBack,onEdit}){
+  const [cursor,setCursor] = useState(()=>{ const n=new Date(); return {y:n.getFullYear(), m:n.getMonth()}; });
+  const [selDay,setSelDay] = useState(null);
+
+  const y=cursor.y, m=cursor.m;
+  const firstDow = new Date(y,m,1).getDay();
+  const daysInMonth = new Date(y,m+1,0).getDate();
+  const monthStr = `${y}-${String(m+1).padStart(2,"0")}`;
+  const today = todayStr();
+
+  const dayTotals = {};
+  records.forEach(r=>{
+    if(!r.date || !r.date.startsWith(monthStr)) return;
+    if(!dayTotals[r.date]) dayTotals[r.date] = {income:0, expense:0};
+    if(r.mode==="income") dayTotals[r.date].income += Number(r.amount||0);
+    else dayTotals[r.date].expense += Number(r.amount||0);
+  });
+
+  const cells = [];
+  for(let i=0;i<firstDow;i++) cells.push(null);
+  for(let d=1; d<=daysInMonth; d++) cells.push(d);
+
+  const move = delta => { setSelDay(null); setCursor(c=>{ let nm=c.m+delta, ny=c.y; if(nm<0){nm=11;ny--;} if(nm>11){nm=0;ny++;} return {y:ny,m:nm}; }); };
+
+  const selDateStr = selDay ? `${monthStr}-${String(selDay).padStart(2,"0")}` : null;
+  const selRecords = selDateStr ? records.filter(r=>r.date===selDateStr).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)) : [];
+  const fmtMan = n => n>=10000 ? `${Math.round(n/10000)}만` : n.toLocaleString();
+
+  return <div style={{minHeight:"100vh",background:"#f8fafc"}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 20px",background:"#fff",borderBottom:"1px solid #f1f5f9"}}>
+      <span style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>📅 달력</span>
+      <button onClick={onBack} style={{background:"#f1f5f9",border:"none",color:"#64748b",borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>← 닫기</button>
+    </div>
+
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 20px"}}>
+      <button onClick={()=>move(-1)} style={{background:"none",border:"none",fontSize:18,color:"#64748b",cursor:"pointer",padding:"4px 10px"}}>◀</button>
+      <span style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>{y}년 {m+1}월</span>
+      <button onClick={()=>move(1)} style={{background:"none",border:"none",fontSize:18,color:"#64748b",cursor:"pointer",padding:"4px 10px"}}>▶</button>
+    </div>
+
+    <div style={{padding:"0 12px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",textAlign:"center",marginBottom:6}}>
+        {["일","월","화","수","목","금","토"].map((w,i)=>(
+          <div key={w} style={{fontSize:11,fontWeight:700,color:i===0?"#dc2626":i===6?"#2563eb":"#94a3b8",padding:"4px 0"}}>{w}</div>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+        {cells.map((d,i)=>{
+          if(!d) return <div key={i}/>;
+          const ds = `${monthStr}-${String(d).padStart(2,"0")}`;
+          const t = dayTotals[ds];
+          const isToday = ds===today;
+          const isSel = ds===selDateStr;
+          const dow = i%7;
+          return <button key={i} onClick={()=>setSelDay(selDay===d?null:d)} style={{
+              background: isSel?"#2563eb":isToday?"#eff6ff":"#fff",
+              border: isToday&&!isSel?"1.5px solid #93c5fd":"1px solid #f1f5f9",
+              borderRadius:10, padding:"6px 2px", minHeight:56,
+              display:"flex", flexDirection:"column", alignItems:"center", gap:2, cursor:"pointer"
+            }}>
+            <span style={{fontSize:12,fontWeight:700,color:isSel?"#fff":dow===0?"#dc2626":dow===6?"#2563eb":"#1e293b"}}>{d}</span>
+            {t?.expense>0&&<span style={{fontSize:9,color:isSel?"#fecaca":"#dc2626",fontWeight:700}}>-{fmtMan(t.expense)}</span>}
+            {t?.income>0&&<span style={{fontSize:9,color:isSel?"#bfdbfe":"#2563eb",fontWeight:700}}>+{fmtMan(t.income)}</span>}
+          </button>;
+        })}
+      </div>
+    </div>
+
+    {selDateStr&&<div style={{margin:"18px 16px 40px",display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{fontSize:12,color:"#64748b",fontWeight:700}}>{selDateStr} 거래 ({selRecords.length}건)</div>
+      {selRecords.length===0&&<div style={{textAlign:"center",color:"#94a3b8",fontSize:13,padding:"16px 0"}}>이 날 거래 내역 없음</div>}
+      {selRecords.map(r=>(
+        <div key={r.id} onClick={()=>onEdit(r)} style={{background:"#fff",borderRadius:10,padding:"10px 14px",border:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+          <div>
+            <div style={{fontSize:11,color:"#94a3b8"}}>{r.mode==="income"?"수입":"지출"} · {r.type}{r.target?` · ${r.target}`:""}</div>
+            <div style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>{r.memo||r.category}</div>
+          </div>
+          <span style={{fontSize:14,fontWeight:800,color:r.mode==="income"?"#2563eb":"#dc2626"}}>{r.mode==="income"?"+":"-"}{Number(r.amount).toLocaleString()}원</span>
+        </div>
+      ))}
+    </div>}
   </div>;
 }
 
@@ -1295,6 +1379,7 @@ export default function App(){
   if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride} confirmForeign={confirmForeign} markAllForeignUnconfirmed={markAllForeignUnconfirmed}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
   if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance} payDayOverrides={payDayOverrides}/>;
+  if(page==="calendar") return <CalendarPage records={records} onBack={()=>setPage("home")} onEdit={r=>{setEditRec(r);setIMode(r.mode||"expense");setPage("input");}}/>;
 
   return <div style={S.root}>
     <header style={S.header}>
@@ -1303,6 +1388,7 @@ export default function App(){
         <span style={{fontSize:18,fontWeight:800,letterSpacing:-0.5,color:"#1e293b"}}>가계부</span>
       </div>
       <div style={{display:"flex",gap:4}}>
+        <button onClick={()=>setPage("calendar")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>📅</button>
         <button onClick={()=>setPage("balance")}  style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>🏦</button>
         <button onClick={()=>setPage("upload")}   style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>📂</button>
         <button onClick={()=>setPage("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8",position:"relative"}}>
