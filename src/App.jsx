@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v2.2.0 (2026-09-11)";
+const APP_VERSION = "v2.2.1 (2026-09-12)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -1477,7 +1477,7 @@ export default function App(){
             <div style={{fontSize:15,fontWeight:800,color:r.mode==="income"?"#16a34a":"#dc2626"}}>{r.mode==="income"?"+":"-"}{fmt(r.amount)}</div>
             <div style={{display:"flex",gap:4,justifyContent:"flex-end",marginTop:5}}>
               <button onClick={()=>startEdit(r)} style={S.editBtn}>수정</button>
-              <button onClick={()=>handleDel(r.id)} style={S.delBtn}>삭제</button>
+              <button onClick={()=>{if(confirm("삭제할까요?")) handleDel(r.id);}} style={S.delBtn}>삭제</button>
             </div>
           </div>
         </div>);})}
