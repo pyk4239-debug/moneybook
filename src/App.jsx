@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v2.2.1 (2026-09-12)";
+const APP_VERSION = "v2.3.0 (2026-09-12)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -500,11 +500,16 @@ function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,cardMon
         </div>
       </div>
 
-      {/* 예정 카드 결제 */}
+      {/* 예정 카드 결제 (결제월별) */}
       <div style={{background:"#fff",borderRadius:16,padding:"18px 22px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
-        <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>💳 예정 카드 결제</div>
-        <div style={{fontSize:24,fontWeight:800,color:upcomingCard.total>0?"#dc2626":"#1e293b",marginTop:4}}>{Number(upcomingCard.total).toLocaleString()}원</div>
-        <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{upcomingCard.nextMonth?`가장 빠른 결제월: ${upcomingCard.nextMonth}`:"예정된 결제 없음"}</div>
+        <div style={{fontSize:12,color:"#64748b",fontWeight:600,marginBottom:10}}>💳 예정 카드 결제</div>
+        {upcomingCard.months.length===0&&<div style={{fontSize:14,color:"#94a3b8"}}>예정된 결제 없음</div>}
+        {upcomingCard.months.map((mo,i)=>(
+          <div key={mo.month} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderTop:i>0?"1px solid #f1f5f9":"none"}}>
+            <span style={{fontSize:12,color:"#64748b",fontWeight:600}}>{mo.month} 결제분</span>
+            <span style={{fontSize:i===0?20:15,fontWeight:800,color:"#dc2626"}}>{mo.total.toLocaleString()}원</span>
+          </div>
+        ))}
       </div>
 
       {/* 월별 카드 사용량 */}
@@ -1198,15 +1203,17 @@ export default function App(){
   })();
   const upcomingCard = (()=>{
     const t = todayStr();
-    let total = 0, nextMonth = null;
+    const byMonth = {};
     records.forEach(r=>{
       if(r.type!=="카드"||r.mode!=="expense") return;
       const d = effDate(r);
       if(!d || d <= t) return; // 아직 안 빠진 미래 결제건만
-      total += Number(r.amount||0);
-      if(!nextMonth || d < nextMonth) nextMonth = d;
+      const mo = d.slice(0,7);
+      byMonth[mo] = (byMonth[mo]||0) + Number(r.amount||0);
     });
-    return { total, nextMonth: nextMonth?nextMonth.slice(0,7):null };
+    const months = Object.entries(byMonth).sort(([a],[b])=>a<b?-1:1).map(([month,total])=>({month,total}));
+    const total = months.reduce((s,m)=>s+m.total,0);
+    return { total, months, nextMonth: months[0]?months[0].month:null };
   })();
 
   // 당월/전월, 당일/전일 지출 (구매일 기준)
