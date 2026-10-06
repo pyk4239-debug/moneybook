@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v2.3.0 (2026-09-12)";
+const APP_VERSION = "v2.3.1 (2026-09-12)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -75,16 +75,23 @@ function parseStatementPaste(text){
   return text.split("\n").map(line=>{
     const cols = line.split("\t").map(s=>s.trim()).filter(s=>s!=="");
     if(cols.length<3) return null;
-    const dm = cols[0].match(/^(\d{1,2})\/(\d{1,2})$/); // 08/10
-    if(!dm) return null;
+    let date=null, md=null;
+    const ymd = cols[0].match(/^(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})$/); // 2026.09.06 또는 2026-09-06
+    const mdOnly = cols[0].match(/^(\d{1,2})\/(\d{1,2})$/); // 08/10
+    if(ymd){
+      date = `${ymd[1]}-${ymd[2].padStart(2,"0")}-${ymd[3].padStart(2,"0")}`;
+      md = `${ymd[2].padStart(2,"0")}-${ymd[3].padStart(2,"0")}`;
+    } else if(mdOnly){
+      md = `${mdOnly[1].padStart(2,"0")}-${mdOnly[2].padStart(2,"0")}`;
+    } else return null;
     const merchant = cols[1];
     const amountCol = cols.find((c,i)=>i>=2 && /^[\d,]+$/.test(c));
     if(!amountCol) return null;
-    return { md: `${dm[1].padStart(2,"0")}-${dm[2].padStart(2,"0")}`, merchant, amount: parseInt(amountCol.replace(/,/g,""),10) };
+    return { date, md, merchant, amount: parseInt(amountCol.replace(/,/g,""),10) };
   }).filter(Boolean);
 }
 
-// 미확정 해외결제 목록과 명세서 파싱결과를 날짜(월-일)+금액 근접도로 매칭
+// 미확정 해외결제 목록과 명세서 파싱결과를 날짜+금액 근접도로 매칭. 연도가 있으면 정확한 날짜로, 없으면 월-일로 매칭
 function matchStatement(rows, unconfirmed){
   const used = new Set();
   const matches = [];
@@ -92,7 +99,9 @@ function matchStatement(rows, unconfirmed){
     let best=null, bestDiff=Infinity;
     unconfirmed.forEach(r=>{
       if(used.has(r.id)) return;
-      if(!r.date || r.date.slice(5)!==row.md) return; // 월-일 일치
+      if(!r.date) return;
+      const sameDate = row.date ? r.date===row.date : r.date.slice(5)===row.md;
+      if(!sameDate) return;
       const diff = Math.abs(Number(r.amount||0)-row.amount);
       if(diff<bestDiff){ bestDiff=diff; best=r; }
     });
@@ -858,7 +867,7 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
               <div key={i} style={{background:"#fff",borderRadius:10,padding:"8px 10px",border:`1px solid ${m.record?"#bbf7d0":"#fecaca"}`,fontSize:11,display:"flex",alignItems:"center",gap:8}}>
                 {m.record?<input type="checkbox" checked={!!checkedRows[i]} onChange={e=>setCheckedRows({...checkedRows,[i]:e.target.checked})} style={{width:16,height:16}}/>:<span style={{fontSize:14}}>⚠️</span>}
                 <div style={{flex:1}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>{m.row.md} · {m.row.merchant} · {m.row.amount.toLocaleString()}원</div>
+                  <div style={{fontWeight:700,color:"#1e293b"}}>{m.row.date||m.row.md} · {m.row.merchant} · {m.row.amount.toLocaleString()}원</div>
                   {m.record?<div style={{color:"#16a34a"}}>→ 매칭됨: {m.record.memo||m.record.category} (기존 추정 {Number(m.record.amount).toLocaleString()}원)</div>
                     :<div style={{color:"#dc2626"}}>매칭되는 미확정 건 없음 (날짜 다르거나 이미 확정됨)</div>}
                 </div>
