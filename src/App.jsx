@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v2.3.1 (2026-09-12)";
+const APP_VERSION = "v2.3.2 (2026-09-12)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -85,9 +85,12 @@ function parseStatementPaste(text){
       md = `${mdOnly[1].padStart(2,"0")}-${mdOnly[2].padStart(2,"0")}`;
     } else return null;
     const merchant = cols[1];
-    const amountCol = cols.find((c,i)=>i>=2 && /^[\d,]+$/.test(c));
-    if(!amountCol) return null;
-    return { date, md, merchant, amount: parseInt(amountCol.replace(/,/g,""),10) };
+    const nums = cols.filter((c,i)=>i>=2 && /^[\d,]+$/.test(c)).map(c=>parseInt(c.replace(/,/g,""),10));
+    if(nums.length===0) return null;
+    const wonBase = nums[0]; // 승인금액
+    const fee = nums.length>1 ? nums[nums.length-1] : Math.round(wonBase*FX_FEE); // 수수료(마지막 숫자열), 없으면 계산
+    const amount = wonBase + fee; // 합계(청구금액) = 승인금액 + 수수료
+    return { date, md, merchant, wonBase, fee, amount };
   }).filter(Boolean);
 }
 
@@ -797,9 +800,7 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
     let n=0;
     matchResult.matches.forEach((m,i)=>{
       if(!m.record || !checkedRows[i]) return;
-      const wonBaseNew = Math.round(m.row.amount/(1+FX_FEE));
-      const feeNew = m.row.amount - wonBaseNew;
-      confirmForeign(m.record.id, {wonBase:wonBaseNew, feeAmount:feeNew, amount:m.row.amount});
+      confirmForeign(m.record.id, {wonBase:m.row.wonBase, feeAmount:m.row.fee, amount:m.row.amount});
       n++;
     });
     showToast(`${n}건 일괄 확정됨`);
@@ -867,7 +868,7 @@ function SettingsPage({expCats,setExpCats,incCats,setIncCats,onBack,showToast,re
               <div key={i} style={{background:"#fff",borderRadius:10,padding:"8px 10px",border:`1px solid ${m.record?"#bbf7d0":"#fecaca"}`,fontSize:11,display:"flex",alignItems:"center",gap:8}}>
                 {m.record?<input type="checkbox" checked={!!checkedRows[i]} onChange={e=>setCheckedRows({...checkedRows,[i]:e.target.checked})} style={{width:16,height:16}}/>:<span style={{fontSize:14}}>⚠️</span>}
                 <div style={{flex:1}}>
-                  <div style={{fontWeight:700,color:"#1e293b"}}>{m.row.date||m.row.md} · {m.row.merchant} · {m.row.amount.toLocaleString()}원</div>
+                  <div style={{fontWeight:700,color:"#1e293b"}}>{m.row.date||m.row.md} · {m.row.merchant} · {m.row.wonBase.toLocaleString()}+{m.row.fee.toLocaleString()}={m.row.amount.toLocaleString()}원</div>
                   {m.record?<div style={{color:"#16a34a"}}>→ 매칭됨: {m.record.memo||m.record.category} (기존 추정 {Number(m.record.amount).toLocaleString()}원)</div>
                     :<div style={{color:"#dc2626"}}>매칭되는 미확정 건 없음 (날짜 다르거나 이미 확정됨)</div>}
                 </div>
