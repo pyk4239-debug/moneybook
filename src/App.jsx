@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v2.3.2 (2026-09-12)";
+const APP_VERSION = "v2.4.0 (2026-09-12)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -230,7 +230,41 @@ function StatsPage({mRecs,mExp,mInc,mET,mIT,expCats,fMonth,setFMonth,dlCSV,sorte
 
   const tColors = {"개인":["#3b82f6","#60a5fa"],"가족":["#f59e0b","#fbbf24"],"기타":["#8b5cf6","#a78bfa"]};
 
+  // 월별 집계 (전체 기간, 최신월 먼저)
+  const monthly = (()=>{
+    const map = {};
+    (sorted||[]).forEach(r=>{
+      if(!r.date) return;
+      const mo = r.date.slice(0,7);
+      if(!map[mo]) map[mo] = {income:0, expense:0};
+      if(r.mode==="income") map[mo].income += Number(r.amount||0);
+      else map[mo].expense += Number(r.amount||0);
+    });
+    return Object.entries(map).sort(([a],[b])=>a<b?1:-1).map(([month,v])=>({month,...v}));
+  })();
+
   return <div style={{paddingBottom:120}}>
+    {/* 월별 집계 */}
+    <div style={{margin:"14px 16px 0",background:"#fff",borderRadius:14,padding:"12px 12px 6px",boxShadow:"0 1px 4px #0000000d"}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:8,padding:"0 4px"}}>📆 월별 집계 <span style={{fontSize:10,color:"#94a3b8",fontWeight:500}}>(탭하면 아래 상세가 그 달로 바뀌어요)</span></div>
+      <div style={{display:"flex",fontSize:10,color:"#94a3b8",padding:"0 4px 4px",fontWeight:600}}>
+        <span style={{flex:1.1}}>월</span><span style={{flex:1,textAlign:"right"}}>수입</span><span style={{flex:1,textAlign:"right"}}>지출</span><span style={{flex:1,textAlign:"right"}}>잔액</span>
+      </div>
+      <div style={{maxHeight:260,overflowY:"auto"}}>
+        {monthly.length===0&&<div style={{textAlign:"center",color:"#94a3b8",fontSize:12,padding:"12px 0"}}>데이터 없음</div>}
+        {monthly.map(m=>{
+          const bal = m.income-m.expense;
+          const sel = m.month===fMonth;
+          return <div key={m.month} onClick={()=>setFMonth(m.month)} style={{display:"flex",alignItems:"center",padding:"8px 4px",borderTop:"1px solid #f1f5f9",background:sel?"#eff6ff":"transparent",borderRadius:sel?8:0,cursor:"pointer",fontSize:12}}>
+            <span style={{flex:1.1,fontWeight:sel?800:600,color:sel?"#2563eb":"#1e293b"}}>{m.month.replace("-",".")}</span>
+            <span style={{flex:1,textAlign:"right",color:"#16a34a",fontWeight:600}}>{m.income?fmtM(m.income):"-"}</span>
+            <span style={{flex:1,textAlign:"right",color:"#dc2626",fontWeight:600}}>{m.expense?fmtM(m.expense):"-"}</span>
+            <span style={{flex:1,textAlign:"right",color:bal>=0?"#2563eb":"#dc2626",fontWeight:700}}>{fmtM(bal)}</span>
+          </div>;
+        })}
+      </div>
+    </div>
+
     {/* 월 선택 */}
     <div style={{padding:"14px 20px 10px"}}>
       <input type="month" value={fMonth} onChange={e=>setFMonth(e.target.value)} style={{width:"100%",boxSizing:"border-box",background:"#f8fafc",border:"1.5px solid #e2e8f0",color:"#1e293b",borderRadius:8,padding:"8px 12px",fontSize:14}}/>
