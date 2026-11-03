@@ -23,7 +23,7 @@ const FX_FEE      = 0.00198; // 해외 결제 수수료 0.198%
 // CAD: 2026.7 실측 7건 평균 +2.14%(범위 1.3~2.5%) → 2.2% 반영 (마스터카드 기준, 비자는 마진 다를 수 있음)
 const FX_MARGIN = { CAD: 1.022 };
 
-const APP_VERSION = "v2.4.0 (2026-09-12)";
+const APP_VERSION = "v2.5.0 (2026-09-12)";
 
 // 결제일(YYYY-MM-DD) 문자열 조립: 결제월 + 일(며칠) → 그 달 마지막 날 보정
 function todayStr(){ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
@@ -502,7 +502,34 @@ function UploadPage({onImport, onBack, showToast}){
 }
 
 /* ── 설정 화면 ── */
-function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,cardMonthly,onEnter,onSetupBalance}){
+function PaidCardList({paidCard}){
+  const [open,setOpen]=useState(null);
+  if(!paidCard||paidCard.length===0) return <div style={{fontSize:13,color:"#94a3b8"}}>아직 결제 완료된 카드 내역이 없어요</div>;
+  const fmtD = d => `${Number(d.slice(5,7))}/${Number(d.slice(8,10))}`;
+  return <div>
+    {paidCard.map((mo,i)=>{
+      const isOpen = open===mo.month;
+      const dateLabel = mo.dates.length===1 ? `${fmtD(mo.dates[0])} 출금` : `${fmtD(mo.dates[0])} 외 ${mo.dates.length-1}일 출금`;
+      return <div key={mo.month} style={{borderTop:i>0?"1px solid #f1f5f9":"none"}}>
+        <div onClick={()=>setOpen(isOpen?null:mo.month)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",cursor:"pointer"}}>
+          <div>
+            <div style={{fontSize:12,color:"#64748b",fontWeight:600}}>{mo.month} 결제분 {isOpen?"▾":"▸"}</div>
+            <div style={{fontSize:10,color:"#94a3b8"}}>{dateLabel} · {mo.items.length}건</div>
+          </div>
+          <span style={{fontSize:15,fontWeight:800,color:"#1e293b"}}>{mo.total.toLocaleString()}원 <span style={{color:"#16a34a",fontSize:12}}>✓</span></span>
+        </div>
+        {isOpen&&<div style={{background:"#f8fafc",borderRadius:8,padding:"4px 10px",marginBottom:8}}>
+          {mo.items.map(r=>(<div key={r.id} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"5px 0",fontSize:11,color:"#475569"}}>
+            <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtD(r.date)} {r.memo||r.category}</span>
+            <span style={{fontWeight:700}}>{Number(r.amount).toLocaleString()}원</span>
+          </div>))}
+        </div>}
+      </div>;
+    })}
+  </div>;
+}
+
+function DashboardPage({autoBalance,startBalance,upcomingCard,paidCard,spendStats,cardMonthly,onEnter,onSetupBalance}){
   const pct = (cur,pre) => pre>0 ? Math.round((cur-pre)/pre*100) : null;
   const monthPct = pct(spendStats.curMonth, spendStats.preMonth);
   const dayPct   = pct(spendStats.curDay,   spendStats.preDay);
@@ -556,6 +583,12 @@ function DashboardPage({autoBalance,startBalance,upcomingCard,spendStats,cardMon
             <span style={{fontSize:i===0?20:15,fontWeight:800,color:"#dc2626"}}>{mo.total.toLocaleString()}원</span>
           </div>
         ))}
+      </div>
+
+      {/* 결제 완료 카드 (최근 3개월) */}
+      <div style={{background:"#fff",borderRadius:16,padding:"18px 22px",boxShadow:"0 4px 16px rgba(0,0,0,0.06)"}}>
+        <div style={{fontSize:12,color:"#64748b",fontWeight:600,marginBottom:6}}>✅ 결제 완료 카드 <span style={{fontSize:10,color:"#94a3b8",fontWeight:500}}>(탭하면 내역)</span></div>
+        <PaidCardList paidCard={paidCard}/>
       </div>
 
       {/* 월별 카드 사용량 */}
@@ -665,7 +698,7 @@ function CalendarPage({records,onBack,onEdit}){
   </div>;
 }
 
-function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartBalance,payDayOverrides}){
+function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartBalance,payDayOverrides,paidCard}){
   const today=()=>{const n=new Date();return`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`;};
   const [date,setDate]   = useState(today());
   const [label,setLabel] = useState("");
@@ -736,6 +769,12 @@ function BalancePage({balances,onAdd,onDel,onBack,records,startBalance,setStartB
       </div>
       <div style={{fontSize:28,fontWeight:800,marginTop:4}}>{Number(autoBalance).toLocaleString()}원</div>
       <div style={{fontSize:11,opacity:0.75,marginTop:4}}>시작 {startBalance.date} · {Number(startBalance.amount).toLocaleString()}원 기준</div>
+    </div>}
+
+    {/* 결제 완료 카드 (통장 출금액 대조용) */}
+    {startBalance&&!editStart&&<div style={{margin:"0 20px 16px",background:"#fff",borderRadius:14,padding:"14px 20px",border:"1px solid #e2e8f0"}}>
+      <div style={{fontSize:12,color:"#64748b",fontWeight:700,marginBottom:6}}>✅ 결제 완료 카드 <span style={{fontSize:10,color:"#94a3b8",fontWeight:500}}>통장 출금액과 대조해보세요</span></div>
+      <PaidCardList paidCard={paidCard}/>
     </div>}
 
     {/* 실제(수동) 확인 잔고 + 차액 */}
@@ -1260,6 +1299,25 @@ export default function App(){
     return { total, months, nextMonth: months[0]?months[0].month:null };
   })();
 
+  // 결제 완료 카드: 결제일(월별 예외 반영)이 오늘 이전인 카드지출을 결제월별로 묶음 (잔고 계산과 같은 기준, 최근 3개월)
+  const paidCard = (()=>{
+    const t = todayStr();
+    const byMonth = {};
+    records.forEach(r=>{
+      if(r.type!=="카드"||r.mode!=="expense") return;
+      const d = effDate(r);
+      if(!d || d>t) return;
+      if(startBalance && d<startBalance.date) return;
+      const mo = d.slice(0,7);
+      if(!byMonth[mo]) byMonth[mo] = {month:mo,total:0,dates:new Set(),items:[]};
+      byMonth[mo].total += Number(r.amount||0);
+      byMonth[mo].dates.add(d);
+      byMonth[mo].items.push(r);
+    });
+    return Object.values(byMonth).sort((a,b)=>a.month<b.month?1:-1).slice(0,3)
+      .map(m=>({...m,dates:[...m.dates].sort(),items:m.items.sort((a,b)=>a.date<b.date?-1:1)}));
+  })();
+
   // 당월/전월, 당일/전일 지출 (구매일 기준)
   const spendStats = (()=>{
     const t = new Date();
@@ -1426,10 +1484,10 @@ export default function App(){
 
   /* 설정 페이지 */
   if(loading||!catLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:16,color:"#94a3b8"}}>불러오는 중...</div>;
-  if(page==="dashboard") return <DashboardPage autoBalance={autoBalance} startBalance={startBalance} upcomingCard={upcomingCard} spendStats={spendStats} cardMonthly={cardMonthly} onEnter={()=>setPage("home")} onSetupBalance={()=>setPage("balance")}/>;
+  if(page==="dashboard") return <DashboardPage autoBalance={autoBalance} startBalance={startBalance} upcomingCard={upcomingCard} paidCard={paidCard} spendStats={spendStats} cardMonthly={cardMonthly} onEnter={()=>setPage("home")} onSetupBalance={()=>setPage("balance")}/>;
   if(page==="settings") return <SettingsPage expCats={expCats} setExpCats={setExpCats} incCats={incCats} setIncCats={setIncCats} onBack={()=>setPage("home")} showToast={showToast} records={records} handleDel={handleDel} cardPayDay={cardPayDay} setCardPayDay={setCardPayDay} payDayOverrides={payDayOverrides} setMonthOverride={setMonthOverride} confirmForeign={confirmForeign} markAllForeignUnconfirmed={markAllForeignUnconfirmed}/>;
   if(page==="upload")   return <UploadPage onImport={async rows=>{ for(const r of rows){ const {id:_,...data}=r; await addDoc(collection(db,"records"),data); } showToast(`${rows.length}건 가져오기 완료 ✓`); setPage("home"); }} onBack={()=>setPage("home")} showToast={showToast}/>;
-  if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance} payDayOverrides={payDayOverrides}/>;
+  if(page==="balance")  return <BalancePage balances={balances} onAdd={handleAddBalance} onDel={handleDelBalance} onBack={()=>setPage("home")} records={records} startBalance={startBalance} setStartBalance={setStartBalance} payDayOverrides={payDayOverrides} paidCard={paidCard}/>;
   if(page==="calendar") return <CalendarPage records={records} onBack={()=>setPage("home")} onEdit={r=>{setEditRec(r);setIMode(r.mode||"expense");setPage("input");}}/>;
 
   return <div style={S.root}>
